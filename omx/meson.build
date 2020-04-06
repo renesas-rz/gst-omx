@@ -48,6 +48,13 @@ if gstgl_dep.found()
   extra_c_args += ['-DGST_USE_UNSTABLE_API']
 endif
 
+if omx_target == 'rz'
+  omx_sources += 'gstomxh265dec.c'
+  if have_mmngrbuf
+    optional_deps += lib_mmngrbuf
+  endif
+endif
+
 gstomx = library('gstomx',
   omx_sources,
   c_args : gst_omx_args + extra_c_args,
