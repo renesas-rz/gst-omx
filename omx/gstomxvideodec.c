@@ -1928,7 +1928,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
   if (!gst_pad_has_current_caps (GST_VIDEO_DECODER_SRC_PAD (self)) ||
       acq_return == GST_OMX_ACQUIRE_BUFFER_RECONFIGURE) {
     GstVideoCodecState *state;
-    OMX_PARAM_PORTDEFINITIONTYPE port_def;
+    OMX_PARAM_PORTDEFINITIONTYPE *port_def = &self->dec_out_port->port_def;
     GstVideoFormat format;
 
     GST_DEBUG_OBJECT (self, "Port settings have changed, updating caps");
@@ -1961,17 +1961,17 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       /* Just update caps */
       GST_VIDEO_DECODER_STREAM_LOCK (self);
 
-      gst_omx_port_get_port_definition (port, &port_def);
-      g_assert (port_def.format.video.eCompressionFormat ==
+      gst_omx_port_get_port_definition (port, port_def);
+      g_assert (port_def->format.video.eCompressionFormat ==
           OMX_VIDEO_CodingUnused);
 
       format =
-          gst_omx_video_get_format_from_omx (port_def.format.video.
+          gst_omx_video_get_format_from_omx (port_def->format.video.
           eColorFormat);
 
       if (format == GST_VIDEO_FORMAT_UNKNOWN) {
         GST_ERROR_OBJECT (self, "Unsupported color format: %d",
-            port_def.format.video.eColorFormat);
+            port_def->format.video.eColorFormat);
         if (buf)
           gst_omx_port_release_buffer (port, buf);
         GST_VIDEO_DECODER_STREAM_UNLOCK (self);
@@ -1981,13 +1981,13 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       GST_DEBUG_OBJECT (self,
           "Setting output state: format %s (%d), width %u, height %u",
           gst_video_format_to_string (format),
-          port_def.format.video.eColorFormat,
-          (guint) port_def.format.video.nFrameWidth,
-          (guint) port_def.format.video.nFrameHeight);
+          port_def->format.video.eColorFormat,
+          (guint) port_def->format.video.nFrameWidth,
+          (guint) port_def->format.video.nFrameHeight);
 
       state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
-          format, port_def.format.video.nFrameWidth,
-          port_def.format.video.nFrameHeight, self->input_state);
+          format, port_def->format.video.nFrameWidth,
+          port_def->format.video.nFrameHeight, self->input_state);
 
       /* Take framerate and pixel-aspect-ratio from sinkpad caps */
       if (klass->cdata.hacks & GST_OMX_HACK_DEFAULT_PIXEL_ASPECT_RATIO) {
