@@ -3691,10 +3691,15 @@ gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec, GstQuery * query)
   g_assert (pool != NULL);
 
   config = gst_buffer_pool_get_config (pool);
-  if (gst_query_find_allocation_meta (query, GST_VIDEO_META_API_TYPE, NULL)) {
-    gst_buffer_pool_config_add_option (config,
-        GST_BUFFER_POOL_OPTION_VIDEO_META);
-  }
+
+  /* The GST_BUFFER_POOL_OPTION_VIDEO_META config must be set 
+   * to buffer pool in order to always add videometa to buffers and then
+   * map buffers using frame map. 
+   *
+   * Frame map should be used instead of buffer map because it will map the
+   * buffer correctly based on the meta information.*/
+  gst_buffer_pool_config_add_option (config,
+      GST_BUFFER_POOL_OPTION_VIDEO_META);
   gst_buffer_pool_set_config (pool, config);
   gst_object_unref (pool);
 
