@@ -246,6 +246,13 @@ elif omx_target == 'rz'
       cdata.set ('USE_RZ_DMABUF', 1)
     endif
   endif
+
+  # check OMXR_Extension_vecmn.h
+  if cc.has_header (
+      'OMXR_Extension_vecmn.h',
+      args : gst_omx_args)
+    cdata.set ('HAVE_VIDEOENC_EXT', 1)
+  endif
 else
   error ('Unsupported omx target specified. Use the -Dtarget option')
 endif
