@@ -38,4 +38,7 @@ struct _GstOMXRZMemory
 GstMemory *
 gst_omx_rz_memory_alloc(GstAllocator *dmabuf_allocator, GstOMXBuffer *omx_buf);
 
+gboolean
+gst_omx_rz_compare_buffers(GstOMXBuffer *buf, GstBuffer *input_buffer);
+
 #endif /*__GST_OMX_RZ_MEMORY_H__ */
