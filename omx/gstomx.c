@@ -3843,6 +3843,8 @@ gst_omx_parse_hacks (gchar ** hacks)
       hacks_flags |= GST_OMX_HACK_USE_NO_COPY_MODE_AS_DEFAULT;
     else if (g_str_equal (*hacks, "default-pix-aspect-ratio"))
       hacks_flags |= GST_OMX_HACK_DEFAULT_PIXEL_ASPECT_RATIO;
+    else if (g_str_equal (*hacks, "renesas-encmc-stride-align"))
+      hacks_flags |= GST_OMX_HACK_RENESAS_ENCMC_STRIDE_ALIGN;
     else
       GST_WARNING ("Unknown hack: %s", *hacks);
     hacks++;
