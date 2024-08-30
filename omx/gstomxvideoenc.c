@@ -2262,7 +2262,6 @@ gst_omx_video_enc_ensure_nb_in_buffers (GstOMXVideoEnc * self)
   return TRUE;
 }
 
-#ifndef USE_OMX_TARGET_RZ
 static gboolean
 gst_omx_video_enc_configure_input_buffer (GstOMXVideoEnc * self,
     GstBuffer * input)
@@ -2303,7 +2302,6 @@ gst_omx_video_enc_configure_input_buffer (GstOMXVideoEnc * self,
   return gst_omx_video_enc_update_input_port (self, port_def, stride,
       slice_height);
 }
-#endif
 
 static gboolean
 gst_omx_video_enc_allocate_in_buffers (GstOMXVideoEnc * self)
@@ -2563,10 +2561,8 @@ gst_omx_video_enc_enable (GstOMXVideoEnc * self, GstBuffer * input)
   }
 
   if (!self->in_pool_used) {
-#ifndef USE_OMX_TARGET_RZ
     if (!gst_omx_video_enc_configure_input_buffer (self, input))
       return FALSE;
-#endif
 
     self->input_allocation = gst_omx_video_enc_pick_input_allocation_mode (self,
         input);
