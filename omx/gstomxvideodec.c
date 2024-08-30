@@ -146,9 +146,11 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
     case PROP_NO_REORDER:
       self->no_reorder = g_value_get_boolean (value);
       break;
+#ifdef HAVE_LOSSY_COMPRESS
     case PROP_LOSSY_COMPRESS:
       self->lossy_compress = g_value_get_boolean (value);
       break;
+#endif
     case PROP_BYPASS:
       self->bypass = g_value_get_boolean (value);
       break;
@@ -3194,6 +3196,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
         &sReorder);
   }
 
+#ifdef HAVE_LOSSY_COMPRESS
   if (!needs_disable) {
     /* Setting lossy compression mode (output port) */
     OMXR_MC_VIDEO_PARAM_LOSSY_COMPRESSIONTYPE sLossy;
@@ -3208,6 +3211,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     gst_omx_component_set_parameter (self->dec,
         OMXR_MC_IndexParamVideoLossyCompression, &sLossy);
   }
+#endif
 
   if (!needs_disable) {
     /* Setting bypass mode (output port) */

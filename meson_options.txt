@@ -1,5 +1,7 @@
 option('header_path', type : 'string', value : '',
     description : 'An extra include directory to find the OpenMax headers')
+option('with_lossy_compress', type : 'boolean', value : false,
+    description : 'Whether or not to support lossy compress property')
 option('target', type : 'combo',
     choices : ['none', 'generic', 'rpi', 'bellagio', 'tizonia', 'zynqultrascaleplus', 'rz'], value : 'none',
     description : 'The OMX platform to target')

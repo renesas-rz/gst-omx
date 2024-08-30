@@ -177,6 +177,11 @@ else
   omx_inc = include_directories (join_paths ('omx', 'openmax'))
 endif
 
+lossy_compress = get_option('with_lossy_compress')
+if  lossy_compress
+   cdata.set('HAVE_LOSSY_COMPRESS', 1)
+endif
+
 default_omx_struct_packing = 0
 omx_target = get_option ('target')
 if omx_target == 'generic'
