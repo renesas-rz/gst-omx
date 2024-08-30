@@ -103,10 +103,13 @@ enum
   PROP_NO_REORDER,
   PROP_LOSSY_COMPRESS,
   PROP_ENABLE_CROP,
-  PROP_BYPASS
+  PROP_BYPASS,
+  PROP_NUM_OUTPUT_BUFFER
 };
 
 #define GST_OMX_VIDEO_DEC_INTERNAL_ENTROPY_BUFFERS_DEFAULT (5)
+#define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT    (0)
+#define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM    (32)
 
 /* class initialization */
 
@@ -154,6 +157,9 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
     case PROP_BYPASS:
       self->bypass = g_value_get_boolean (value);
       break;
+    case PROP_NUM_OUTPUT_BUFFER:
+      self->num_outbufs = g_value_get_uint (value);
+      break;
 #else
     case PROP_NO_REORDER:
       GST_WARNING_OBJECT (self, "HAVE_VIDEODEC_EXT not enabled. Couldn't configure property no-reorder (require vendor specific implement).\n");
@@ -200,6 +206,9 @@ gst_omx_video_dec_get_property (GObject * object, guint prop_id,
       break;
     case PROP_BYPASS:
       g_value_set_boolean (value, self->bypass);
+      break;
+    case PROP_NUM_OUTPUT_BUFFER:
+      g_value_set_uint (value, self->num_outbufs);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -262,6 +271,14 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
           "Whether or not to use Bypass mode in OMX",
           FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
+   g_object_class_install_property (gobject_class, PROP_NUM_OUTPUT_BUFFER,
+      g_param_spec_uint ("num-outbufs",
+          "Number of output buffers",
+          "Number of buffers that are required on output port",
+          0, GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM,
+          GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
 
   element_class->change_state =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_change_state);
@@ -313,6 +330,9 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   self->has_set_property = FALSE;
   self->enable_crop = FALSE;
   self->bypass = FALSE;
+  /* The default value is 0, which means the number of output buffers will be
+   * automatically updated when allocated */
+  self->num_outbufs = GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT;
 
   memset (&self->cinfo, 0, sizeof (self->cinfo));
 
@@ -905,6 +925,7 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
   gboolean eglimage = FALSE, add_videometa = FALSE;
   GstCaps *caps = NULL;
   guint min = 0, max = 0;
+  guint min_outbuf = 0;
   GstVideoCodecState *state =
       gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
 
@@ -932,8 +953,16 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       goto done;
     }
 
-    /* Need at least 4 buffers for anything meaningful */
-    min = MAX (min + port->port_def.nBufferCountMin, 4);
+    /* Need at least 4 buffers for anything meaningful but Bypass mode need
+     * at least 5 buffers */
+    min_outbuf = self->bypass ? 5 : 4;
+    if (self->num_outbufs)
+      min = MAX (min + port->port_def.nBufferCountMin,
+                 (self->num_outbufs > min_outbuf) ?
+                  self->num_outbufs : min_outbuf);
+    else
+      min = MAX (min + port->port_def.nBufferCountMin, min_outbuf);
+
     if (max == 0) {
       max = min;
     } else if (max < min) {

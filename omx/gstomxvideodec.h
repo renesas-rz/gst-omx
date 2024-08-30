@@ -123,6 +123,8 @@ struct _GstOMXVideoDec
   gboolean enable_crop;
   /* Set TRUE to use Bypass mode in OMX */
   gboolean bypass;
+  /* Number of output buffers that are required on output port */
+  guint32 num_outbufs;
   gboolean crop_set;
   crop_info cinfo;
 };
