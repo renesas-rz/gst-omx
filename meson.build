@@ -261,6 +261,12 @@ elif omx_target == 'rz'
     cdata.set ('HAVE_VIDEOR_EXT', 1)
   endif
 
+  # check OMXR_Extension_h265d.h
+  if cc.has_header (
+      'OMXR_Extension_h265d.h',
+      args : gst_omx_args)
+    cdata.set ('HAVE_H265DEC_EXT', 1)
+  endif
 else
   error ('Unsupported omx target specified. Use the -Dtarget option')
 endif
