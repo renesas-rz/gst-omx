@@ -3018,7 +3018,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     }
   }
 #ifdef HAVE_VIDEODEC_EXT
-  if (!needs_disable) {
+  if (!self->disabled) {
     /* Setting reorder mode (output port only) */
     OMXR_MC_VIDEO_PARAM_REORDERTYPE sReorder;
     GST_OMX_INIT_STRUCT (&sReorder);
@@ -3034,7 +3034,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   }
 
 #ifdef HAVE_LOSSY_COMPRESS
-  if (!needs_disable) {
+  if (!self->disabled) {
     /* Setting lossy compression mode (output port) */
     OMXR_MC_VIDEO_PARAM_LOSSY_COMPRESSIONTYPE sLossy;
     GST_OMX_INIT_STRUCT (&sLossy);
@@ -3050,7 +3050,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   }
 #endif
 
-  if (!needs_disable) {
+  if (!self->disabled) {
     /* Setting bypass mode (output port) */
     OMXR_MC_VIDEO_PARAM_BYPASS_POSTPROCESSINGTYPE sBypass;
     GST_OMX_INIT_STRUCT (&sBypass);
@@ -3082,7 +3082,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
 
   GST_DEBUG_OBJECT (self, "Updating ports definition");
 #ifdef USE_OMX_TARGET_RZ
-  if ((!needs_disable) && (self->bypass)) {
+  if ((!self->disabled) && (self->bypass)) {
     OMX_PARAM_PORTDEFINITIONTYPE out_port_def;
     gst_omx_port_get_port_definition (self->dec_out_port, &out_port_def);
     /* In G2L Bypass mode, OMX will not send Event PortSettingChanged
