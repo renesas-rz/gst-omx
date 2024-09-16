@@ -170,6 +170,11 @@ else
   omx_inc = include_directories (join_paths ('omx', 'openmax'))
 endif
 
+lossy_compress = get_option('with_lossy_compress')
+if  lossy_compress == 1
+   cdata.set('HAVE_LOSSY_COMPRESS', 1)
+endif
+
 default_omx_struct_packing = 0
 omx_target = get_option ('target')
 if omx_target == 'generic'
@@ -230,6 +235,13 @@ elif omx_target == 'rz'
     if have_mmngrbuf and have_exvdcmn
       cdata.set ('USE_RZ_DMABUF', 1)
     endif
+  endif
+
+  # check OMXR_Extension_vdcmn.h
+  if cc.has_header (
+    'OMXR_Extension_vdcmn.h',
+    args : gst_omx_args)
+    cdata.set ('HAVE_VIDEODEC_EXT', 1)
   endif
 
   # check OMXR_Extension_vecmn.h
