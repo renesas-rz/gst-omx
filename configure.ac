@@ -387,6 +387,12 @@ if test "x${enable_dmabuf}" = "xyes"; then
  fi
 fi
 
+dnl check OMXR_Extension_vecmn.h
+AC_CHECK_HEADER([OMXR_Extension_vecmn.h],
+           [AC_DEFINE(HAVE_VIDEOENC_EXT, 1, [Define if you have OMXR_Extension_vecmn.h header])],
+           [],
+           [AC_INCLUDES_DEFAULT])
+
 dnl *** set variables based on configure arguments ***
 
 dnl set license and copyright notice
