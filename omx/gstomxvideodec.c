@@ -98,7 +98,8 @@ enum
   PROP_NO_COPY,
   PROP_NO_REORDER,
   PROP_LOSSY_COMPRESS,
-  PROP_ENABLE_CROP
+  PROP_ENABLE_CROP,
+  PROP_BYPASS
 };
 
 #define GST_OMX_VIDEO_DEC_INTERNAL_ENTROPY_BUFFERS_DEFAULT (5)
@@ -134,15 +135,30 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
       self->use_dmabuf = g_value_get_boolean (value);
       self->has_set_property = TRUE;
       break;
+    case PROP_ENABLE_CROP:
+      self->enable_crop = g_value_get_boolean (value);
+      break;
+#ifdef HAVE_VIDEODEC_EXT
     case PROP_NO_REORDER:
       self->no_reorder = g_value_get_boolean (value);
       break;
     case PROP_LOSSY_COMPRESS:
       self->lossy_compress = g_value_get_boolean (value);
       break;
-    case PROP_ENABLE_CROP:
-      self->enable_crop = g_value_get_boolean (value);
+    case PROP_BYPASS:
+      self->bypass = g_value_get_boolean (value);
       break;
+#else
+    case PROP_NO_REORDER:
+      GST_WARNING_OBJECT (self, "HAVE_VIDEODEC_EXT not enabled. Couldn't configure property no-reorder (require vendor specific implement).\n");
+      break;
+    case PROP_LOSSY_COMPRESS:
+      GST_WARNING_OBJECT (self, "HAVE_VIDEODEC_EXT not enabled. Couldn't configure property lossy-compress (require vendor specific implement).\n");
+      break;
+    case PROP_BYPASS:
+      GST_WARNING_OBJECT (self, "HAVE_VIDEODEC_EXT not enabled. Couldn't configure property bypass (require vendor specific implement).\n");
+      break;
+#endif
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -175,6 +191,9 @@ gst_omx_video_dec_get_property (GObject * object, guint prop_id,
       break;
     case PROP_ENABLE_CROP:
       g_value_set_boolean (value, self->enable_crop);
+      break;
+    case PROP_BYPASS:
+      g_value_set_boolean (value, self->bypass);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -231,6 +250,12 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
           "Whether or not to enable cropping if there is cropping information on SPS",
           FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
+  g_object_class_install_property (gobject_class, PROP_BYPASS,
+      g_param_spec_boolean ("bypass",
+          "Use Bypass function",
+          "Whether or not to use Bypass mode in OMX",
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
 
   element_class->change_state =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_change_state);
@@ -276,6 +301,7 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   self->lossy_compress = FALSE;
   self->has_set_property = FALSE;
   self->enable_crop = FALSE;
+  self->bypass = FALSE;
 
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
   gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST
@@ -1628,7 +1654,74 @@ enable_port:
     goto done;
 
 done:
+  return err;
+}
 
+/* Allocate and configure output buffers for Bypass mode */
+static OMX_ERRORTYPE
+gst_omx_video_dec_configure_bypass (GstOMXVideoDec * self)
+{
+  GstOMXPort *port;
+  OMX_ERRORTYPE err;
+  GstVideoCodecState *state;
+  OMX_PARAM_PORTDEFINITIONTYPE port_def;
+  GstVideoFormat format;
+  GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
+
+  port = self->dec_out_port;
+
+  /* Update caps */
+  GST_VIDEO_DECODER_STREAM_LOCK (self);
+
+  gst_omx_port_get_port_definition (port, &port_def);
+  g_assert (port_def.format.video.eCompressionFormat == OMX_VIDEO_CodingUnused);
+
+  format =
+      gst_omx_video_get_format_from_omx (port_def.format.video.eColorFormat);
+
+  if (format == GST_VIDEO_FORMAT_UNKNOWN) {
+    GST_ERROR_OBJECT (self, "Unsupported color format: %d",
+        port_def.format.video.eColorFormat);
+    GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+    err = OMX_ErrorUndefined;
+    goto done;
+  }
+
+  GST_DEBUG_OBJECT (self,
+      "Setting output state: format %s (%d), width %u, height %u",
+      gst_video_format_to_string (format),
+      port_def.format.video.eColorFormat,
+      (guint) port_def.format.video.nFrameWidth,
+      (guint) port_def.format.video.nFrameHeight);
+
+  state = gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
+      format, port_def.format.video.nFrameWidth,
+      port_def.format.video.nFrameHeight, self->input_state);
+
+  if (klass->cdata.hacks & GST_OMX_HACK_DEFAULT_PIXEL_ASPECT_RATIO) {
+    /* Set pixel-aspect-ratio is 1/1. It means that always keep
+     * original image when display   */
+    state->info.par_d = state->info.par_n;
+  }
+
+  if (!gst_video_decoder_negotiate (GST_VIDEO_DECODER (self))) {
+    gst_video_codec_state_unref (state);
+    GST_ERROR_OBJECT (self, "Failed to negotiate");
+    err = OMX_ErrorUndefined;
+    GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+    goto done;
+  }
+
+  gst_video_codec_state_unref (state);
+
+  GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+
+  err = gst_omx_video_dec_allocate_output_buffers (self);
+  if (err != OMX_ErrorNone) {
+    goto done;
+  }
+
+done:
   return err;
 }
 
@@ -2684,8 +2777,16 @@ gst_omx_video_dec_enable (GstOMXVideoDec * self, GstBuffer * input)
       /* Need to allocate buffers to reach Idle state */
       if (!gst_omx_video_dec_allocate_in_buffers (self))
         return FALSE;
-      if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
-        return FALSE;
+
+      if (self->bypass) {
+        /* In G2L Bypass mode, allocate output buffers here instead
+         * of waiting for Event PortSettingChanged */
+        if (gst_omx_video_dec_configure_bypass(self))
+          return FALSE;
+      } else {
+        if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
+          return FALSE;
+      }
     }
 
     if (gst_omx_component_get_state (self->dec,
@@ -2915,6 +3016,27 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     gst_omx_component_set_parameter (self->dec,
         OMXR_MC_IndexParamVideoLossyCompression, &sLossy);
   }
+
+  if (!needs_disable) {
+    /* Setting bypass mode (output port) */
+    OMXR_MC_VIDEO_PARAM_BYPASS_POSTPROCESSINGTYPE sBypass;
+    GST_OMX_INIT_STRUCT (&sBypass);
+    sBypass.nPortIndex = self->dec_out_port->index;
+
+    if (self->bypass == TRUE)
+      sBypass.bEnable = OMX_TRUE;
+    else
+      sBypass.bEnable = OMX_FALSE;
+
+    gst_omx_component_set_parameter (self->dec,
+        OMXR_MC_IndexParamVideoBypassPostprocessing, &sBypass);
+    gst_omx_component_get_parameter (self->dec,
+        OMXR_MC_IndexParamVideoBypassPostprocessing, &sBypass);
+    if (self->bypass != sBypass.bEnable) {
+      GST_WARNING_OBJECT (self, "Could not set Bypass mode");
+      self->bypass = sBypass.bEnable;
+    }
+  }
 #else
   if (self->no_reorder != FALSE)
     GST_ERROR_OBJECT (self,
@@ -2926,6 +3048,23 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
 #endif
 
   GST_DEBUG_OBJECT (self, "Updating ports definition");
+#ifdef USE_OMX_TARGET_RZ
+  if ((!needs_disable) && (self->bypass)) {
+    OMX_PARAM_PORTDEFINITIONTYPE out_port_def;
+    gst_omx_port_get_port_definition (self->dec_out_port, &out_port_def);
+    /* In G2L Bypass mode, OMX will not send Event PortSettingChanged
+      * so application has to set parameters for output port manually */
+    out_port_def.format.video.nFrameWidth =  info->width;
+    out_port_def.format.video.nFrameHeight =  info->height;
+    out_port_def.format.video.nStride = (info->width+127)/128*128;
+    out_port_def.format.video.nSliceHeight = (info->height+15)/16*16;
+    if (gst_omx_port_update_port_definition (self->dec_out_port,
+            &out_port_def) != OMX_ErrorNone)
+      return FALSE;
+  }
+  /* To make source code flexible, accept getting port_def param again */
+#endif
+
   if (gst_omx_port_update_port_definition (self->dec_out_port,
           NULL) != OMX_ErrorNone)
     return FALSE;
