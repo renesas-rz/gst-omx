@@ -3056,7 +3056,8 @@ gst_omx_video_dec_handle_frame (GstVideoDecoder * decoder,
   }
 
   if (!self->started) {
-    if (!GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame)) {
+    if (!GST_VIDEO_CODEC_FRAME_IS_SYNC_POINT (frame) &&
+        !GST_BUFFER_FLAG_IS_SET (frame->input_buffer, GST_BUFFER_FLAG_HEADER)) {
       gst_video_decoder_drop_frame (GST_VIDEO_DECODER (self), frame);
       return GST_FLOW_OK;
     }
