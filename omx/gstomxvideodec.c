@@ -1005,6 +1005,9 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
   }
 #endif
 
+  if (!self->no_copy && !self->dmabuf)
+    caps = NULL;
+
   if (caps || self->no_copy || self->use_dmabuf)
     self->out_port_pool =
         gst_omx_buffer_pool_new (GST_ELEMENT_CAST (self), self->dec, port,
