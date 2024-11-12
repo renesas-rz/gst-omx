@@ -29,6 +29,10 @@
 #include "gstomxh265utils.h"
 #include "gstomxvideo.h"
 
+#if defined (USE_OMX_TARGET_RZ) && defined (HAVE_H265E_EXT)
+#include "OMXR_Extension_h265e.h"
+#endif
+
 GST_DEBUG_CATEGORY_STATIC (gst_omx_h265_enc_debug_category);
 #define GST_CAT_DEFAULT gst_omx_h265_enc_debug_category
 
@@ -160,7 +164,7 @@ gst_omx_h265_enc_class_init (GstOMXH265EncClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
-#ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
+#if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
   g_object_class_install_property (gobject_class, PROP_PERIODICITYOFIDRFRAMES,
       g_param_spec_uint ("periodicity-idr", "IDR periodicity",
           "Periodicity of IDR frames (0xffffffff=component default)",
@@ -176,6 +180,7 @@ gst_omx_h265_enc_class_init (GstOMXH265EncClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
+#ifndef USE_OMX_TARGET_RZ
   g_object_class_install_property (gobject_class,
       PROP_CONSTRAINED_INTRA_PREDICTION,
       g_param_spec_boolean ("constrained-intra-prediction",
@@ -193,6 +198,7 @@ gst_omx_h265_enc_class_init (GstOMXH265EncClass * klass)
           GST_OMX_H265_VIDEO_ENC_LOOP_FILTER_MODE_DEFAULT,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
+#endif
 #endif
 
   videoenc_class->cdata.default_sink_template_caps =
@@ -227,19 +233,21 @@ gst_omx_h265_enc_set_property (GObject * object, guint prop_id,
     case PROP_INTERVALOFCODINGINTRAFRAMES:
       self->interval_intraframes = g_value_get_uint (value);
       break;
-#ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
+#if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
     case PROP_PERIODICITYOFIDRFRAMES:
       self->periodicity_idr = g_value_get_uint (value);
       break;
     case PROP_B_FRAMES:
       self->b_frames = g_value_get_uint (value);
       break;
+#ifndef USE_OMX_TARGET_RZ
     case PROP_CONSTRAINED_INTRA_PREDICTION:
       self->constrained_intra_prediction = g_value_get_boolean (value);
       break;
     case PROP_LOOP_FILTER_MODE:
       self->loop_filter_mode = g_value_get_enum (value);
       break;
+#endif
 #endif
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -257,19 +265,21 @@ gst_omx_h265_enc_get_property (GObject * object, guint prop_id, GValue * value,
     case PROP_INTERVALOFCODINGINTRAFRAMES:
       g_value_set_uint (value, self->interval_intraframes);
       break;
-#ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
+#if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
     case PROP_PERIODICITYOFIDRFRAMES:
       g_value_set_uint (value, self->periodicity_idr);
       break;
     case PROP_B_FRAMES:
       g_value_set_uint (value, self->b_frames);
       break;
+#ifndef USE_OMX_TARGET_RZ
     case PROP_CONSTRAINED_INTRA_PREDICTION:
       g_value_set_boolean (value, self->constrained_intra_prediction);
       break;
     case PROP_LOOP_FILTER_MODE:
       g_value_set_enum (value, self->loop_filter_mode);
       break;
+#endif
 #endif
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -282,13 +292,15 @@ gst_omx_h265_enc_init (GstOMXH265Enc * self)
 {
   self->interval_intraframes =
       GST_OMX_H265_VIDEO_ENC_INTERVAL_OF_CODING_INTRA_FRAMES_DEFAULT;
-#ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
+#if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
   self->periodicity_idr =
       GST_OMX_H265_VIDEO_ENC_PERIODICITY_OF_IDR_FRAMES_DEFAULT;
   self->b_frames = GST_OMX_H265_VIDEO_ENC_B_FRAMES_DEFAULT;
+#ifndef USE_OMX_TARGET_RZ
   self->constrained_intra_prediction =
       GST_OMX_H265_VIDEO_ENC_CONSTRAINED_INTRA_PREDICTION_DEFAULT;
   self->loop_filter_mode = GST_OMX_H265_VIDEO_ENC_LOOP_FILTER_MODE_DEFAULT;
+#endif
 #endif
 }
 
@@ -476,6 +488,68 @@ set_intra_period (GstOMXH265Enc * self)
 }
 #endif
 
+#ifdef USE_OMX_TARGET_RZ
+static gboolean
+set_intra_period (GstOMXH265Enc * self)
+{
+#if defined (HAVE_H265E_EXT)
+  OMXR_MC_VIDEO_CONFIG_HEVCINTRAPERIOD config_hevcintraperiod;
+  OMX_ERRORTYPE err;
+ 
+  GST_OMX_INIT_STRUCT (&config_hevcintraperiod);
+  config_hevcintraperiod.nPortIndex =
+      GST_OMX_VIDEO_ENC (self)->enc_out_port->index;
+ 
+  /* Renesas OMX support Get/Set Config for this Index. */
+  err =
+      gst_omx_component_get_config (GST_OMX_VIDEO_ENC (self)->enc,
+      OMXR_MC_IndexConfigVideoHEVCIntraPeriod, &config_hevcintraperiod);
+ 
+  if (err == OMX_ErrorUnsupportedIndex) {
+    GST_WARNING_OBJECT (self,
+        "OMXR_MC_IndexConfigVideoHEVCIntraPeriod  not supported by component");
+    return TRUE;
+  } else if (err != OMX_ErrorNone) {
+    GST_ERROR_OBJECT (self,
+        "can't get OMXR_MC_IndexConfigVideoHEVCIntraPeriod %s (0x%08x)",
+        gst_omx_error_to_string (err), err);
+    return FALSE;
+  }
+ 
+  GST_DEBUG_OBJECT (self, "default nPFrames:%u, nIDRPeriod:%u",
+      (guint) config_hevcintraperiod.nPFrames,
+      (guint) config_hevcintraperiod.nIDRPeriod);
+ 
+  if (self->periodicity_idr !=
+      GST_OMX_H265_VIDEO_ENC_PERIODICITY_OF_IDR_FRAMES_DEFAULT) {
+      config_hevcintraperiod.nIDRPeriod = self->periodicity_idr;
+  }
+ 
+  if (self->interval_intraframes !=
+      GST_OMX_H265_VIDEO_ENC_INTERVAL_OF_CODING_INTRA_FRAMES_DEFAULT) {
+    /* This OMX API doesn't allow us to specify the number of B-frames.
+     * So if user requested one we have to rely on update_param_hev()
+     * to configure the intraframes interval so it can take the
+     * B-frames into account. */
+    if (self->b_frames == GST_OMX_H265_VIDEO_ENC_B_FRAMES_DEFAULT)
+       config_hevcintraperiod.nPFrames = self->interval_intraframes;
+  }
+  /* Renesas OMX support Get/Set Config for this Index. */
+  err =
+      gst_omx_component_set_config (GST_OMX_VIDEO_ENC (self)->enc,
+      OMXR_MC_IndexConfigVideoHEVCIntraPeriod, &config_hevcintraperiod);
+ 
+  if (err != OMX_ErrorNone) {
+    GST_ERROR_OBJECT (self,
+        "can't set OMXR_MC_IndexConfigVideoHEVCIntraPeriod %s (0x%08x)",
+        gst_omx_error_to_string (err), err);
+    return FALSE;
+  }
+#endif 
+  return TRUE;
+}
+#endif
+
 static gboolean
 gst_omx_h265_enc_set_format (GstOMXVideoEnc * enc, GstOMXPort * port,
     GstVideoCodecState * state)
@@ -489,7 +563,7 @@ gst_omx_h265_enc_set_format (GstOMXVideoEnc * enc, GstOMXPort * port,
   OMX_VIDEO_HEVCLEVELTYPE level = OMX_VIDEO_HEVCLevelUnknown;
   gboolean enable_subframe = FALSE;
 
-#ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
+#if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
   if (self->periodicity_idr !=
       GST_OMX_H265_VIDEO_ENC_PERIODICITY_OF_IDR_FRAMES_DEFAULT)
     set_intra_period (self);
