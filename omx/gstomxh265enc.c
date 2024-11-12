@@ -407,7 +407,7 @@ update_param_hevc (GstOMXH265Enc * self,
 #endif
 
   /* GOP pattern */
-#ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
+#if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
   /* The zynqultrascaleplus uses another PARAM_HEVCTYPE API allowing users to
    * define the number of P and B frames while Android's API only expose the
    * former. */
