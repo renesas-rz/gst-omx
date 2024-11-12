@@ -271,6 +271,20 @@ elif omx_target == 'rz'
       'OMXR_Extension_h264.h',
       args : gst_omx_args)
     cdata.set ('HAVE_H264_EXT', 1)
+
+    # check OMXR_IndexExt.h
+    if cc.has_header (
+        'OMXR_IndexExt.h',
+        args : gst_omx_args)
+      cdata.set ('HAVE_INDEX_EXTR', 1)
+    endif
+
+    # check OMXR_VideoExt.h
+    if cc.has_header (
+        'OMXR_VideoExt.h',
+        args : gst_omx_args)
+      cdata.set ('HAVE_VIDEO_EXTR', 1)
+    endif
   endif
 
   # check OMXR_Extension_h265d.h
