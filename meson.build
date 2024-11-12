@@ -266,6 +266,13 @@ elif omx_target == 'rz'
     cdata.set ('HAVE_VIDEOR_EXT', 1)
   endif
 
+  # check OMXR_Extension_h264.h
+  if cc.has_header (
+      'OMXR_Extension_h264.h',
+      args : gst_omx_args)
+    cdata.set ('HAVE_H264_EXT', 1)
+  endif
+
   # check OMXR_Extension_h265d.h
   if cc.has_header (
       'OMXR_Extension_h265d.h',
@@ -361,8 +368,23 @@ have_omx_hevc = cc.has_header_symbol(
     prefix : extra_video_headers,
     args : gst_omx_args,
     include_directories : [omx_inc])
+if not have_omx_hevc
+  have_omx_hevc = cc.has_header_symbol(
+      'OMXR_VideoExt.h',
+      'OMX_VIDEO_CodingHEVC',
+      prefix : extra_video_headers,
+      args : gst_omx_args,
+      include_directories : [omx_inc])
+endif
 if have_omx_hevc
   cdata.set('HAVE_HEVC', 1)
+endif
+
+have_h265e_ext = cc.has_header(
+    'OMXR_Extension_h265e.h',
+    args : gst_omx_args)
+if have_h265e_ext
+  cdata.set('HAVE_H265E_EXT', 1)
 endif
 
 if gstgl_dep.found()
