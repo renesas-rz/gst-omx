@@ -35,6 +35,9 @@
 #if defined (USE_OMX_TARGET_RZ) && defined (HAVE_VIDEOENC_EXT)
 #include "OMXR_Extension_vecmn.h"
 #endif
+#if defined(USE_OMX_TARGET_RZ) && defined(HAVE_H246E_EXT)
+#include <OMXR_Extension_h264e.h>
+#endif
 
 GST_DEBUG_CATEGORY_STATIC (gst_omx_h264_enc_debug_category);
 #define GST_CAT_DEFAULT gst_omx_h264_enc_debug_category
@@ -678,6 +681,44 @@ gst_omx_h264_enc_set_format (GstOMXVideoEnc * enc, GstOMXPort * port,
   OMX_VIDEO_AVCPROFILETYPE profile = OMX_VIDEO_AVCProfileMax;
   OMX_VIDEO_AVCLEVELTYPE level = OMX_VIDEO_AVCLevelMax;
   gboolean enable_subframe = FALSE;
+
+#if defined(USE_OMX_TARGET_RZ) && defined(HAVE_H246E_EXT)
+  /* Retrieves the current VUI settings of the encoder component. Updates the 
+   * VUI properties to ensure the encoded stream contains timing and frame rate 
+   * information based on the `GstVideoInfo` structure.*/
+  {
+    GstVideoInfo *info = &state->info;
+    OMX_ERRORTYPE err;
+    OMXR_MC_VIDEO_PARAM_AVC_VUI_PROPERTY vui_param;
+
+    GST_OMX_INIT_STRUCT (&vui_param);
+
+    if (info->fps_n) {
+      err = gst_omx_component_get_parameter(GST_OMX_VIDEO_ENC (self)->enc, OMXR_MC_IndexParamVideoAVCVuiProperty,
+          &vui_param);
+      if (err == OMX_ErrorUnsupportedSetting) {
+        GST_WARNING_OBJECT (self,
+            "Settings of VUI not supported by the component");
+      } else if (err != OMX_ErrorNone) {
+        GST_ERROR_OBJECT (self,
+            "Failed to get vui propety: %s (0x%08x)",
+            gst_omx_error_to_string (err), err);
+      } else {
+        vui_param.bFixedFrameRateFlag = TRUE;
+        vui_param.bTimingInfoPresentFlag = TRUE;
+        vui_param.u32NumUnitsInTick = info->fps_d;
+        vui_param.u32TimeScale = info->fps_n * 2;
+        err = gst_omx_component_set_parameter(GST_OMX_VIDEO_ENC (self)->enc, OMXR_MC_IndexParamVideoAVCVuiProperty,
+            &vui_param);
+        if (err != OMX_ErrorNone) {
+          GST_ERROR_OBJECT (self,
+              "Failed to set vui propety: %s (0x%08x)",
+              gst_omx_error_to_string (err), err);
+        }
+      }
+    }
+  }
+#endif
 
 #ifdef USE_OMX_TARGET_RPI
   GST_OMX_INIT_STRUCT (&config_inline_header);

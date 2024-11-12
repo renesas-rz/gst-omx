@@ -563,6 +563,39 @@ gst_omx_h265_enc_set_format (GstOMXVideoEnc * enc, GstOMXPort * port,
   OMX_VIDEO_HEVCLEVELTYPE level = OMX_VIDEO_HEVCLevelUnknown;
   gboolean enable_subframe = FALSE;
 
+#if defined (USE_OMX_TARGET_RZ) && defined (HAVE_H265E_EXT)
+  {
+    GstVideoInfo *info = &state->info;
+    OMXR_MC_VIDEO_PARAM_HEV_VUI_PROPERTY  vui_param;
+
+    GST_OMX_INIT_STRUCT (&vui_param);
+
+    if (info->fps_n) {
+      err = gst_omx_component_get_parameter(GST_OMX_VIDEO_ENC (self)->enc, OMXR_MC_IndexParamVideoHEVVuiProperty,
+          &vui_param);
+      if (err == OMX_ErrorUnsupportedSetting) {
+        GST_WARNING_OBJECT (self,
+            "Settings of VUI not supported by the component");
+      } else if (err != OMX_ErrorNone) {
+        GST_ERROR_OBJECT (self,
+            "Failed to get vui propety: %s (0x%08x)",
+            gst_omx_error_to_string (err), err);
+      } else {
+        vui_param.bTimingInfoPresentFlag = TRUE;
+        vui_param.u32NumUnitsInTick = info->fps_d;
+        vui_param.u32TimeScale = info->fps_n;
+        err = gst_omx_component_set_parameter(GST_OMX_VIDEO_ENC (self)->enc, OMXR_MC_IndexParamVideoHEVVuiProperty,
+            &vui_param);
+        if (err != OMX_ErrorNone) {
+          GST_ERROR_OBJECT (self,
+              "Failed to set vui propety: %s (0x%08x)",
+              gst_omx_error_to_string (err), err);
+        }
+      }
+    }
+  }
+#endif 
+
 #if defined (USE_OMX_TARGET_ZYNQ_USCALE_PLUS) || defined(USE_OMX_TARGET_RZ)
   if (self->periodicity_idr !=
       GST_OMX_H265_VIDEO_ENC_PERIODICITY_OF_IDR_FRAMES_DEFAULT)
