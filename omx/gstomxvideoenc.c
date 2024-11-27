@@ -264,6 +264,47 @@ gst_omx_video_enc_get_scantype (void)
   return qtype;
 }
 
+static gboolean
+gst_omx_video_enc_parse_cropsize (GObject * object, const GValue * value)
+{
+  GstOMXVideoEnc *self = GST_OMX_VIDEO_ENC (object);
+  const gchar *str_value = g_value_get_string (value);
+
+  gchar **str_arr, *end_char;
+  gint length = 4; /* fixed-size array */
+  gint64 crop_arr[4] = { 0, };
+  gint i;
+
+  str_arr = g_strsplit (str_value, ":", length);
+  if (str_arr == NULL)
+    goto error;
+
+  for (i = 0; i < length; i++) {
+    if (str_arr[i] == NULL || *str_arr[i] == '\0') /* Empty string */
+      goto error;
+    else
+      crop_arr[i] = g_ascii_strtoll(str_arr[i], &end_char, 10);
+
+    if (*end_char != '\0') /* Invalid end character */
+      goto error;
+    if (crop_arr[i] < G_MININT || crop_arr[i] > G_MAXINT)
+      goto error;
+  }
+  g_strfreev (str_arr);
+
+  self->crop.left   = crop_arr[0];
+  self->crop.right  = crop_arr[1];
+  self->crop.top    = crop_arr[2];
+  self->crop.bottom = crop_arr[3];
+
+  return TRUE;
+
+error:
+  GST_ERROR_OBJECT (self, "Failed to parse crop size: %s. Using default instead",
+                    str_value);
+  return FALSE;
+}
+
 /* prototypes */
 static void gst_omx_video_enc_finalize (GObject * object);
 static void gst_omx_video_enc_set_property (GObject * object, guint prop_id,
@@ -330,7 +371,8 @@ enum
   PROP_LOOK_AHEAD,
   PROP_SCAN_TYPE,
   PROP_NO_COPY,
-  PROP_USE_DMABUF
+  PROP_USE_DMABUF,
+  PROP_ENABLE_CROP,
 };
 
 /* FIXME: Better defaults */
@@ -363,6 +405,7 @@ enum
 #define OMX_ALG_GST_EVENT_INSERT_LONGTERM "omx-alg/insert-longterm"
 #define OMX_ALG_GST_EVENT_USE_LONGTERM "omx-alg/use-longterm"
 #define GST_OMX_VIDEO_ENC_SCAN_TYPE_DEFAULT (0xffffffff)
+#define GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT (0)
 
 /* class initialization */
 #define do_init \
@@ -441,6 +484,12 @@ gst_omx_video_enc_class_init (GstOMXVideoEncClass * klass)
       g_param_spec_boolean ("use-dmabuf", "Use dmabuf method",
           "Whether or not to use dmabuf method",
           FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+
+  g_object_class_install_property (gobject_class, PROP_ENABLE_CROP,
+      g_param_spec_string ("crop", "Crop information",
+          "Crop of each sides in raw stream. Format: \"left:right:top:bottom\".",
+          NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
@@ -631,6 +680,11 @@ gst_omx_video_enc_init (GstOMXVideoEnc * self)
   self->scan_type = GST_OMX_VIDEO_ENC_SCAN_TYPE_DEFAULT;
   self->no_copy = FALSE;
   self->import_dmabuf = FALSE;
+  self->enable_crop = FALSE;
+  self->crop.left   = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
+  self->crop.right  = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
+  self->crop.top    = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
+  self->crop.bottom = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
 #ifdef USE_RZ_DMABUF_IMPORT
   self->extaddr_array =
       g_array_new (FALSE, FALSE, sizeof (OMXR_MC_VIDEO_EXTEND_ADDRESSTYPE));
@@ -1293,6 +1347,9 @@ gst_omx_video_enc_set_property (GObject * object, guint prop_id,
       self->import_dmabuf = g_value_get_boolean (value);
       break;
 #endif
+    case PROP_ENABLE_CROP:
+      self->enable_crop = gst_omx_video_enc_parse_cropsize (object, value);
+      break;
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
     case PROP_QP_MODE:
       self->qp_mode = g_value_get_enum (value);
@@ -1393,6 +1450,16 @@ gst_omx_video_enc_get_property (GObject * object, guint prop_id, GValue * value,
       g_value_set_boolean (value, self->import_dmabuf);
       break;
 #endif
+    case PROP_ENABLE_CROP: {
+        gchar *str_value = g_strdup_printf ("%d:%d:%d:%d",
+                                            self->crop.left,
+                                            self->crop.right,
+                                            self->crop.top,
+                                            self->crop.bottom);
+        g_value_set_string (value, str_value);
+        g_free (str_value);
+      }
+      break;
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
     case PROP_QP_MODE:
       g_value_set_enum (value, self->qp_mode);
@@ -2912,6 +2979,35 @@ gst_omx_video_enc_set_format (GstVideoEncoder * encoder,
   if (!gst_omx_video_enc_update_input_port (self, port_def, info->width,
           info->height))
     return FALSE;
+
+  /* frame_cropping */
+  if (self->enable_crop) {
+    OMX_ERRORTYPE err;
+    OMX_CONFIG_RECTTYPE crop_param;
+
+    if ((self->crop.left + self->crop.right > info->width) ||
+        (self->crop.top + self->crop.bottom > info->height)) {
+      GST_ERROR_OBJECT (self, "Failed to set frame cropping propety");
+      return FALSE;
+    }
+
+    GST_OMX_INIT_STRUCT (&crop_param);
+    crop_param.nPortIndex = OMX_DirInput;
+    crop_param.nLeft   = self->crop.left;
+    crop_param.nTop    = self->crop.top;
+    crop_param.nWidth  = info->width - self->crop.left - self->crop.right;
+    crop_param.nHeight = info->height - self->crop.top - self->crop.bottom;
+    err = gst_omx_component_set_config (self->enc,
+        OMX_IndexConfigCommonInputCrop, &crop_param);
+
+    if (err != OMX_ErrorNone) {
+      GST_ERROR_OBJECT(self,
+                       "Failed to set frame cropping propety: %s (0x%08x)",
+                       gst_omx_error_to_string (err), err);
+      return FALSE;
+    }
+  }
+
 
 #ifdef USE_OMX_TARGET_RPI
   /* aspect ratio */

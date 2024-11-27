@@ -86,6 +86,13 @@ struct _GstOMXVideoEnc
   guint32 quant_p_frames;
   guint32 quant_b_frames;
   guint32 scan_type;
+  struct {
+    guint32 left;
+    guint32 right;
+    guint32 top;
+    guint32 bottom;
+  } crop;
+  gboolean enable_crop;
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
   guint32 qp_mode;
   guint32 min_qp;
