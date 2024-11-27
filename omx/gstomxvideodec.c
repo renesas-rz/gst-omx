@@ -3338,6 +3338,15 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   gst_omx_video_dec_set_latency (self);
 #endif
 
+  /* Setting bSkipInterframe is OMX_TRUE (skip error frame) */
+  if (klass->cdata.hacks & GST_OMX_HACK_SKIP_ERROR_FRAME) {
+      OMXR_MC_VIDEO_PARAM_ERROR_CONCEALMENTTYPE   videoParamErrorConcealment;
+      GST_OMX_INIT_STRUCT (&videoParamErrorConcealment);
+      videoParamErrorConcealment.nPortIndex       = 1;
+      videoParamErrorConcealment.bSkipInterframe  = OMX_TRUE;
+      gst_omx_component_set_parameter(self->dec, OMXR_MC_IndexParamVideoErrorConcealment, &videoParamErrorConcealment);
+  }
+
   self->downstream_flow_ret = GST_FLOW_OK;
   return TRUE;
 }
