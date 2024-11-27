@@ -106,6 +106,10 @@ enum
 #define GST_OMX_VIDEO_DEC_INTERNAL_ENTROPY_BUFFERS_DEFAULT (5)
 #define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT    (0)
 #define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM    (32)
+#define GST_OMX_VIDEO_DEC_MIN_FRAMEWIDTH                   (80)
+#define GST_OMX_VIDEO_DEC_MIN_FRAMEHEIGHT                  (80)
+#define GST_OMX_VIDEO_DEC_MIN_STRIDE                       (96)
+#define GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT                  (80)
 
 /* class initialization */
 
@@ -1688,9 +1692,9 @@ done:
   return err;
 }
 
-/* Allocate and configure output buffers for Bypass mode */
+/* Create a new out port pool */
 static OMX_ERRORTYPE
-gst_omx_video_dec_configure_bypass (GstOMXVideoDec * self)
+gst_omx_video_dec_create_out_pool (GstOMXVideoDec * self)
 {
   GstOMXPort *port;
   OMX_ERRORTYPE err;
@@ -2747,6 +2751,8 @@ static gboolean
 gst_omx_video_dec_enable (GstOMXVideoDec * self, GstBuffer * input)
 {
   GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
+  OMX_U32 min_stride = GST_OMX_VIDEO_DEC_MIN_STRIDE;
+  OMX_U32 min_sliceheight = GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT;
 
   GST_DEBUG_OBJECT (self, "Enabling component");
 
@@ -2809,10 +2815,19 @@ gst_omx_video_dec_enable (GstOMXVideoDec * self, GstBuffer * input)
       if (!gst_omx_video_dec_allocate_in_buffers (self))
         return FALSE;
 
+      /* Round up to get minimum stride and slice height follow bypass
+       * alignment */
       if (self->bypass) {
-        /* In G2L Bypass mode, allocate output buffers here instead
-         * of waiting for Event PortSettingChanged */
-        if (gst_omx_video_dec_configure_bypass(self))
+        min_stride = GST_ROUND_UP_128(GST_OMX_VIDEO_DEC_MIN_FRAMEWIDTH);
+        min_sliceheight = GST_ROUND_UP_32(GST_OMX_VIDEO_DEC_MIN_FRAMEHEIGHT);
+      }
+      /* If the input resolution is smaller than the minimum stride and slice
+       * height, no output pool will be created. Therefore, the output pool
+       * needs to be created manually. */
+      if ((self->dec_in_port->port_def.format.video.nFrameWidth <= min_stride)
+          && (self->dec_in_port->port_def.format.video.nFrameHeight
+              <= min_sliceheight)) {
+        if (gst_omx_video_dec_create_out_pool (self) != OMX_ErrorNone)
           return FALSE;
       } else {
         if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
@@ -2913,6 +2928,8 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean needs_disable = FALSE;
   OMX_PARAM_PORTDEFINITIONTYPE port_def;
   OMX_U32 framerate_q16 = gst_omx_video_calculate_framerate_q16 (info);
+  OMX_U32 min_stride = GST_OMX_VIDEO_DEC_MIN_STRIDE;
+  OMX_U32 min_sliceheight = GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT;
 
   self = GST_OMX_VIDEO_DEC (decoder);
   klass = GST_OMX_VIDEO_DEC_GET_CLASS (decoder);
@@ -3082,15 +3099,30 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
 
   GST_DEBUG_OBJECT (self, "Updating ports definition");
 #ifdef USE_OMX_TARGET_RZ
-  if ((!self->disabled) && (self->bypass)) {
+  if (!self->disabled) {
     OMX_PARAM_PORTDEFINITIONTYPE out_port_def;
+
+    /* Initialize default output allocation align for page size
+     * Choose 96x80 because they are close to minimum 80 */
     gst_omx_port_get_port_definition (self->dec_out_port, &out_port_def);
-    /* In G2L Bypass mode, OMX will not send Event PortSettingChanged
-      * so application has to set parameters for output port manually */
-    out_port_def.format.video.nFrameWidth =  info->width;
-    out_port_def.format.video.nFrameHeight =  info->height;
-    out_port_def.format.video.nStride = (info->width+127)/128*128;
-    out_port_def.format.video.nSliceHeight = (info->height+15)/16*16;
+    /* Round up to get minimum stride and slice height follow bypass
+      * alignment */
+    if (self->bypass) {
+      min_stride = GST_ROUND_UP_128(GST_OMX_VIDEO_DEC_MIN_FRAMEWIDTH);
+      min_sliceheight = GST_ROUND_UP_32(GST_OMX_VIDEO_DEC_MIN_FRAMEHEIGHT);
+    }
+    /* If the input resolution is smaller than the minimum stride and slice
+      * height, the output will not be reconfigured. Therefore, the output size
+      * needs to be manually adjusted instead of taking the default value. */
+    if ((info->width <= min_stride) && (info->height <= min_sliceheight)) {
+      out_port_def.format.video.nFrameWidth =  info->width;
+      out_port_def.format.video.nFrameHeight =  info->height;
+    }
+    /* To OMX can raise OMX_EventPortSettingsChanged if the input resolution
+      * is larger than the minimum stride and slice height. */
+    out_port_def.format.video.nStride = min_stride;
+    out_port_def.format.video.nSliceHeight = min_sliceheight;
+
     if (gst_omx_port_update_port_definition (self->dec_out_port,
             &out_port_def) != OMX_ErrorNone)
       return FALSE;
