@@ -338,8 +338,6 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
    * automatically updated when allocated */
   self->num_outbufs = GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT;
 
-  memset (&self->cinfo, 0, sizeof (self->cinfo));
-
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
   gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST
       (self), TRUE);
@@ -697,17 +695,21 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
   OMX_PARAM_PORTDEFINITIONTYPE *port_def = &self->dec_out_port->port_def;
   gboolean ret = FALSE;
   GstVideoFrame frame;
-  crop_info *cinfo = &self->cinfo;
+  crop_info cinfo = { 0, };
 
-  if (vinfo->width + cinfo->crop_left != port_def->format.video.nFrameWidth ||
-      GST_VIDEO_INFO_FIELD_HEIGHT (vinfo) + cinfo->crop_top !=
+  if (self->enable_crop) {
+    if (!get_crop_info (self, &cinfo))
+      goto done;
+  }
+
+  if (vinfo->width + cinfo.crop_left!= port_def->format.video.nFrameWidth ||
+      GST_VIDEO_INFO_FIELD_HEIGHT (vinfo) + cinfo.crop_top !=
       port_def->format.video.nFrameHeight) {
     GST_ERROR_OBJECT (self, "Resolution do not match: port=%ux%u vinfo=%dx%d,"
         "crop left=%d, crop top=%d",
         (guint) port_def->format.video.nFrameWidth,
         (guint) port_def->format.video.nFrameHeight,
-        vinfo->width, GST_VIDEO_INFO_FIELD_HEIGHT (vinfo), cinfo->crop_left,
-        cinfo->crop_top);
+        vinfo->width, GST_VIDEO_INFO_FIELD_HEIGHT (vinfo), cinfo.crop_left, cinfo.crop_top);
     goto done;
   }
 
@@ -800,8 +802,8 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
       const GstVideoFormatInfo *finfo = vinfo->finfo;
 
       crop_offset = (src_stride[p] *
-          GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (finfo, p, cinfo->crop_top))
-          + (GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (finfo, p, cinfo->crop_left) *
+          GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (finfo, p, cinfo.crop_top))
+          + (GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (finfo, p, cinfo.crop_left) *
           GST_VIDEO_FORMAT_INFO_PSTRIDE (finfo, p));
 
       dst = GST_VIDEO_FRAME_PLANE_DATA (&frame, p);
@@ -1977,12 +1979,12 @@ get_crop_info (GstOMXVideoDec * self, crop_info * c_info)
 }
 
 static void
-update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer)
+update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer,
+    const crop_info * cinfo)
 {
   GstVideoCodecState *state;
   GstVideoInfo *vinfo;
   GstVideoMeta *vmeta;
-  crop_info *cinfo = &self->cinfo;
   gint i;
 
   vmeta = gst_buffer_get_video_meta (buffer);
@@ -2087,6 +2089,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
   GstOMXAcquireBufferReturn acq_return;
   OMX_ERRORTYPE err;
   GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
+  crop_info cinfo = { 0 };
 
 #if defined (USE_OMX_TARGET_RPI) && defined (HAVE_GST_GL)
   port = self->eglimage ? self->egl_out_port : self->dec_out_port;
@@ -2110,8 +2113,6 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     GstVideoFormat format;
 
     GST_DEBUG_OBJECT (self, "Port settings have changed, updating caps");
-
-    self->crop_set = FALSE;
 
     /* Reallocate all buffers */
     if (acq_return == GST_OMX_ACQUIRE_BUFFER_RECONFIGURE
@@ -2230,15 +2231,14 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     gst_omx_video_dec_clean_older_frames (self, buf,
         gst_video_decoder_get_frames (GST_VIDEO_DECODER (self)));
 
-  if (self->enable_crop && !self->crop_set) {
-    if (!get_crop_info (self, &self->cinfo))
+  if (self->enable_crop) {
+    if (!get_crop_info (self, &cinfo))
       goto component_error;
 
-    if (self->cinfo.crop_left || self->cinfo.crop_top) {
-      if (!update_output_state (self, &self->cinfo))
+    if (cinfo.crop_left || cinfo.crop_top) {
+      if (!update_output_state (self, &cinfo))
         goto caps_failed;
     }
-    self->crop_set = TRUE;
   }
 
   /* Poll for resolution changes that happen without a PortSettingsChanged
@@ -2283,7 +2283,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       set_outbuffer_interlace_flags (buf, outbuf);
 #endif
 
-      update_buffer_meta (self, outbuf);
+      update_buffer_meta (self, outbuf, &cinfo);
 
       if (GST_OMX_BUFFER_POOL (self->out_port_pool)->need_copy)
         outbuf =
@@ -2336,7 +2336,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       set_outbuffer_interlace_flags (buf, outbuf);
 #endif
 
-      update_buffer_meta (self, outbuf);
+      update_buffer_meta (self, outbuf, &cinfo);
 
       if (GST_OMX_BUFFER_POOL (self->out_port_pool)->need_copy)
         outbuf =

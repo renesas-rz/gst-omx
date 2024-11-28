@@ -125,8 +125,6 @@ struct _GstOMXVideoDec
   gboolean bypass;
   /* Number of output buffers that are required on output port */
   guint32 num_outbufs;
-  gboolean crop_set;
-  crop_info cinfo;
 };
 
 struct _GstOMXVideoDecClass
