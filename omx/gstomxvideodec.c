@@ -80,6 +80,8 @@ static gboolean gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
 static gboolean gst_omx_video_dec_propose_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
+static gboolean gst_omx_video_dec_sink_query (GstVideoDecoder * decoder,
+    GstQuery * query);
 
 static GstFlowReturn gst_omx_video_dec_drain (GstVideoDecoder * decoder);
 
@@ -330,6 +332,8 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_decide_allocation);
   video_decoder_class->propose_allocation =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_propose_allocation);
+  video_decoder_class->sink_query =
+      GST_DEBUG_FUNCPTR (gst_omx_video_dec_sink_query);
 
   klass->cdata.type = GST_OMX_COMPONENT_TYPE_FILTER;
   klass->cdata.default_src_template_caps =
@@ -4234,6 +4238,40 @@ gst_omx_video_dec_async_resolution_change (GstOMXVideoDec * self,
 out:
   GST_VIDEO_DECODER_STREAM_UNLOCK (self);
   return ret;
+}
+
+static gboolean
+gst_omx_video_dec_sink_query (GstVideoDecoder * decoder, GstQuery * query)
+{
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (decoder);
+  GstPad *pad = GST_VIDEO_DECODER_SINK_PAD (self);
+
+  GST_LOG_OBJECT (self, "handling query: %" GST_PTR_FORMAT, query);
+
+  if (self->dec) {
+    if (self->enable_scale == TRUE && GST_QUERY_TYPE (query) == GST_QUERY_CAPS) {
+      GstCaps *filter, *caps;
+
+      gst_query_parse_caps (query, &filter);
+      caps = gst_video_decoder_proxy_getcaps (decoder, NULL, filter);
+
+      if (filter == NULL || gst_caps_is_empty (caps)) {
+        GST_DEBUG_OBJECT(self,
+                         "No available proxy caps, using sink pad instead");
+        gst_caps_replace (&caps, gst_pad_get_pad_template_caps (pad));
+      }
+
+      GST_LOG_OBJECT (self, "Returning caps %" GST_PTR_FORMAT, caps);
+      gst_query_set_caps_result (query, caps);
+      gst_caps_unref (caps);
+
+      return TRUE;
+    }
+  }
+
+  return
+    GST_VIDEO_DECODER_CLASS
+    (gst_omx_video_dec_parent_class)->sink_query (decoder, query);
 }
 
 static gint
