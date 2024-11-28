@@ -116,6 +116,8 @@ struct _GstOMXVideoDec
   gboolean bypass;
   /* Number of output buffers that are required on output port */
   guint32 num_outbufs;
+  /* Set TRUE to scale output video using src caps */
+  gboolean enable_scale;
 };
 
 struct _GstOMXVideoDecClass
