@@ -2342,11 +2342,15 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
       goto caps_failed;
   }
 
-  /* Poll for resolution changes that happen without a PortSettingsChanged
-     event */
-  if (!gst_omx_video_dec_async_resolution_change (self, buf)) {
-    gst_omx_port_release_buffer (port, buf);
-    goto caps_failed;
+  /* The scale settings are used as destination settings. So, it isn't necessary
+   * to update following DECODERESULTTYPE data */
+  if (self->enable_scale == FALSE) {
+    /* Poll for resolution changes that happen without a PortSettingsChanged
+      event */
+    if (!gst_omx_video_dec_async_resolution_change (self, buf)) {
+      gst_omx_port_release_buffer (port, buf);
+      goto caps_failed;
+    }
   }
 
   if (!frame && (buf->omx_buf->nFilledLen > 0 || buf->eglimage)) {
