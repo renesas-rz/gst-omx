@@ -4178,6 +4178,8 @@ gst_omx_video_dec_async_resolution_change (GstOMXVideoDec * self,
 
 #ifdef HAVE_VIDEODEC_EXT
   OMXR_MC_VIDEO_DECODERESULTTYPE *decode_res;
+  OMX_PARAM_PORTDEFINITIONTYPE *port_def = &self->dec_out_port->port_def;
+  gint crop_width, crop_height;
 
   /* Update the decoder output state only when the DECODERESULTTYPE data is
    * different from the current setting.  Settings from the
@@ -4193,6 +4195,18 @@ gst_omx_video_dec_async_resolution_change (GstOMXVideoDec * self,
 
   decoded_width = decode_res->u32PictWidth;
   decoded_height = decode_res->u32PictHeight;
+
+  /* The settings that retrived from DECODERESULTTYPE data including crop settings.
+   * However, bypass mode does not support crop. Therefore, it isn't necessary update
+   * decoder output state in this cases. */
+  if (gst_omx_video_dec_get_cropped_resolution(self, &crop_width, &crop_height)) {
+    if ((self->bypass) && ((port_def->format.video.nFrameWidth != crop_width)
+          || (port_def->format.video.nFrameHeight != crop_height)))
+      return TRUE;
+  } else {
+    return FALSE;
+  }
+
 #else
   return TRUE;
 #endif
