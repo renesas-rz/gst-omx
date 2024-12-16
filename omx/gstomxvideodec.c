@@ -80,6 +80,8 @@ static gboolean gst_omx_video_dec_decide_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
 static gboolean gst_omx_video_dec_propose_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
+static gboolean gst_omx_video_dec_sink_query (GstVideoDecoder * decoder,
+    GstQuery * query);
 
 static GstFlowReturn gst_omx_video_dec_drain (GstVideoDecoder * decoder);
 
@@ -88,7 +90,14 @@ static OMX_ERRORTYPE gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec *
 static gboolean gst_omx_video_dec_deallocate_output_buffers (GstOMXVideoDec
     * self);
 
-static gboolean get_crop_info (GstOMXVideoDec * self, crop_info * c_info);
+static gboolean gst_omx_video_dec_get_cropped_resolution (GstOMXVideoDec * self,
+    gint * out_width, gint * out_height);
+static gboolean gst_omx_video_dec_get_resolution_from_src_pad (GstOMXVideoDec * self,
+    gint * out_width, gint * out_height);
+static gboolean get_omx_video_dec_set_scale (GstOMXVideoDec * self,
+    gint in_width, gint in_height);
+static gint gst_omx_video_dec_calculate_scale_ratio (gint new_length,
+    gint length);
 
 enum
 {
@@ -100,12 +109,19 @@ enum
   PROP_LOSSY_COMPRESS,
   PROP_ENABLE_CROP,
   PROP_BYPASS,
-  PROP_NUM_OUTPUT_BUFFER
+  PROP_NUM_OUTPUT_BUFFER,
+  PROP_ENABLE_SCALE,
 };
 
 #define GST_OMX_VIDEO_DEC_INTERNAL_ENTROPY_BUFFERS_DEFAULT (5)
 #define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT    (0)
 #define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM    (32)
+#define GST_OMX_VIDEO_DEC_MIN_FRAMEWIDTH                   (80)
+#define GST_OMX_VIDEO_DEC_MIN_FRAMEHEIGHT                  (80)
+#define GST_OMX_VIDEO_DEC_MIN_STRIDE                       (96)
+#define GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT                  (80)
+#define GST_OMX_VIDEO_DEC_MAX_FRAMEWIDTH                   (1920)
+#define GST_OMX_VIDEO_DEC_MAX_FRAMEHEIGHT                  (1080)
 
 /* class initialization */
 
@@ -139,7 +155,7 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
       self->has_set_property = TRUE;
       break;
     case PROP_ENABLE_CROP:
-      self->enable_crop = g_value_get_boolean (value);
+      /* Deprecated from OMX v1.3.0 */
       break;
 #ifdef HAVE_VIDEODEC_EXT
     case PROP_NO_REORDER:
@@ -152,9 +168,17 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
 #endif
     case PROP_BYPASS:
       self->bypass = g_value_get_boolean (value);
+      if (self->bypass == TRUE) {
+        self->enable_scale = FALSE;
+      }
       break;
     case PROP_NUM_OUTPUT_BUFFER:
       self->num_outbufs = g_value_get_uint (value);
+      break;
+    case PROP_ENABLE_SCALE:
+      self->enable_scale = g_value_get_boolean (value);
+      if (self->bypass == TRUE)
+        self->enable_scale = FALSE;
       break;
 #else
     case PROP_NO_REORDER:
@@ -198,13 +222,16 @@ gst_omx_video_dec_get_property (GObject * object, guint prop_id,
       g_value_set_boolean (value, self->lossy_compress);
       break;
     case PROP_ENABLE_CROP:
-      g_value_set_boolean (value, self->enable_crop);
+      /* Deprecated from OMX v1.3.0 */
       break;
     case PROP_BYPASS:
       g_value_set_boolean (value, self->bypass);
       break;
     case PROP_NUM_OUTPUT_BUFFER:
       g_value_set_uint (value, self->num_outbufs);
+      break;
+    case PROP_ENABLE_SCALE:
+      g_value_set_boolean (value, self->enable_scale);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -258,8 +285,9 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
   g_object_class_install_property (gobject_class, PROP_ENABLE_CROP,
       g_param_spec_boolean ("enable-crop",
           "Enable cropping video as value of left_offset and top_offset",
-          "Whether or not to enable cropping if there is cropping information on SPS",
-          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          "Whether or not to enable cropping if there is cropping information "
+          "on SPS (Deprecated)",
+          TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
   g_object_class_install_property (gobject_class, PROP_BYPASS,
       g_param_spec_boolean ("bypass",
@@ -274,6 +302,12 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
           0, GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM,
           GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+  g_object_class_install_property (gobject_class, PROP_ENABLE_SCALE,
+      g_param_spec_boolean ("enable-scale",
+          "Scaling video using src caps ",
+          "Whether or not to enable scaling if Bypass mode is disabled",
+          TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
   element_class->change_state =
@@ -294,6 +328,8 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_decide_allocation);
   video_decoder_class->propose_allocation =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_propose_allocation);
+  video_decoder_class->sink_query =
+      GST_DEBUG_FUNCPTR (gst_omx_video_dec_sink_query);
 
   klass->cdata.type = GST_OMX_COMPONENT_TYPE_FILTER;
   klass->cdata.default_src_template_caps =
@@ -319,8 +355,8 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   self->no_reorder = FALSE;
   self->lossy_compress = FALSE;
   self->has_set_property = FALSE;
-  self->enable_crop = FALSE;
   self->bypass = FALSE;
+  self->enable_scale = FALSE;
   /* The default value is 0, which means the number of output buffers will be
    * automatically updated when allocated */
   self->num_outbufs = GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT;
@@ -682,22 +718,6 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
   OMX_PARAM_PORTDEFINITIONTYPE *port_def = &self->dec_out_port->port_def;
   gboolean ret = FALSE;
   GstVideoFrame frame;
-  crop_info cinfo = { 0, };
-
-  if (self->enable_crop) {
-    if (!get_crop_info (self, &cinfo))
-      goto done;
-  }
-
-  if (vinfo->width + cinfo.crop_left != port_def->format.video.nFrameWidth ||
-      vinfo->height + cinfo.crop_top != port_def->format.video.nFrameHeight) {
-    GST_ERROR_OBJECT (self, "Resolution do not match: port=%ux%u vinfo =%dx%d,"
-        "crop left=%d, crop top=%d",
-        (guint) port_def->format.video.nFrameWidth,
-        (guint) port_def->format.video.nFrameHeight,
-        vinfo->width, vinfo->height, cinfo.crop_left, cinfo.crop_top);
-    goto done;
-  }
 
   /* Try using gst_video_frame_map() before use gst_buffer_map() because
    * gst_buffer_map() could return the different pointer in buffers
@@ -784,16 +804,10 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
       const guint8 *data;
       guint8 *dst;
       guint h;
-      gint crop_offset;
       const GstVideoFormatInfo *finfo = vinfo->finfo;
 
-      crop_offset = (src_stride[p] *
-          GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (finfo, p, cinfo.crop_top))
-          + (GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (finfo, p, cinfo.crop_left) *
-          GST_VIDEO_FORMAT_INFO_PSTRIDE (finfo, p));
-
       dst = GST_VIDEO_FRAME_PLANE_DATA (&frame, p);
-      data = src + crop_offset;
+      data = src;
       for (h = 0; h < dst_height[p]; h++) {
         memcpy (dst, data, dst_width[p]);
         dst += GST_VIDEO_FRAME_PLANE_STRIDE (&frame, p);
@@ -1629,6 +1643,35 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
     goto done;
   }
 
+  /* FIXME: In case decode FullHD video, the decode size is 1920x1088. However,
+   * maxmimum supported image size of G2L is only 1920x1080. So, output buffer
+   * could not be used by downstream plugins */
+  port_def.format.video.nFrameHeight =
+      MIN (port_def.format.video.nFrameHeight, GST_OMX_VIDEO_DEC_MAX_FRAMEHEIGHT);
+
+  /* Update scale ratio base on decoded information */
+  if (self->enable_scale == TRUE) {
+    gint cropped_width, cropped_height;
+
+    if (!gst_omx_video_dec_get_cropped_resolution (self, &cropped_width,
+                                                   &cropped_height))
+      goto done;
+
+    if (!get_omx_video_dec_set_scale (self, cropped_width, cropped_height))
+      goto done;
+
+    /* If there is cropped information in SPS, it means scale ratio is
+     * calculated incorrectly. So, nStride / nSliceHeight updated by OMX should
+     * not be used. */
+    if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &cropped_width,
+                                                        &cropped_height))
+      goto done;
+    port_def.format.video.nStride      = cropped_width;
+    port_def.format.video.nSliceHeight = cropped_height;
+  }
+
+  gst_omx_port_update_port_definition (port, &port_def);
+
   GST_DEBUG_OBJECT (self,
       "Setting output state: format %s (%d), width %u, height %u",
       gst_video_format_to_string (format),
@@ -1688,9 +1731,9 @@ done:
   return err;
 }
 
-/* Allocate and configure output buffers for Bypass mode */
+/* Create a new out port pool */
 static OMX_ERRORTYPE
-gst_omx_video_dec_configure_bypass (GstOMXVideoDec * self)
+gst_omx_video_dec_create_out_pool (GstOMXVideoDec * self)
 {
   GstOMXPort *port;
   OMX_ERRORTYPE err;
@@ -1828,7 +1871,8 @@ copy_frame (const GstVideoInfo * info, GstBuffer * outbuf)
 }
 
 static gboolean
-get_crop_info (GstOMXVideoDec * self, crop_info * c_info)
+gst_omx_video_dec_get_cropped_resolution (GstOMXVideoDec * self,
+    gint * out_width, gint * out_height)
 {
   GstOMXPort *port;
   OMX_CONFIG_RECTTYPE crop;
@@ -1844,15 +1888,84 @@ get_crop_info (GstOMXVideoDec * self, crop_info * c_info)
   if (err != OMX_ErrorNone)
     return FALSE;
 
-  c_info->crop_left = crop.nLeft;
-  c_info->crop_top = crop.nTop;
+  *out_width  = crop.nWidth;
+  *out_height = crop.nHeight;
+
+  return TRUE;
+}
+
+static gboolean
+gst_omx_video_dec_get_resolution_from_src_pad (GstOMXVideoDec * self,
+    gint * out_width, gint * out_height)
+{
+  GstCaps *templ_caps, *intersection;
+  GstStructure *s;
+
+  templ_caps = gst_pad_get_pad_template_caps (GST_VIDEO_DECODER_SRC_PAD (self));
+  intersection =
+      gst_pad_peer_query_caps (GST_VIDEO_DECODER_SRC_PAD (self), templ_caps);
+  gst_caps_unref (templ_caps);
+
+  GST_DEBUG_OBJECT (self, "Allowed downstream caps: %" GST_PTR_FORMAT,
+      intersection);
+
+  s = gst_caps_get_structure (intersection, 0);
+  if (gst_structure_has_field (s, "width")) {
+    gst_structure_get_int (s, "width", out_width);
+  }
+  if (gst_structure_has_field (s, "height")) {
+    gst_structure_get_int (s, "height", out_height);
+  }
+
+  gst_caps_unref (intersection);
+  return TRUE;
+}
+
+static gboolean
+get_omx_video_dec_set_scale (GstOMXVideoDec * self,
+    gint in_width, gint in_height)
+{
+  gint out_width = in_width, out_height = in_height;
+
+  if (!gst_omx_video_dec_get_resolution_from_src_pad (self,
+                                                      &out_width, &out_height))
+    return FALSE;
+
+  if (out_width % 2 || out_height % 2) {
+      GST_ERROR_OBJECT (self, "Unsupported resolution: %dx%d",
+                        out_width, out_height);
+      return FALSE;
+  }
+
+  if (out_width <= in_width && out_height <= in_height) {
+    OMX_CONFIG_SCALEFACTORTYPE sScale;
+    OMX_ERRORTYPE err;
+    GST_OMX_INIT_STRUCT (&sScale);
+    sScale.nPortIndex = self->dec_out_port->index;
+    sScale.xWidth =
+        gst_omx_video_dec_calculate_scale_ratio (out_width, in_width);
+    sScale.xHeight =
+        gst_omx_video_dec_calculate_scale_ratio (out_height, in_height);
+
+    err = gst_omx_component_set_config (self->dec,
+                                        OMX_IndexConfigCommonScale, &sScale);
+    if (err != OMX_ErrorNone) {
+      GST_ERROR_OBJECT (self, "Failed to update scale propety: %s (0x%08x)",
+                        gst_omx_error_to_string (err), err);
+      return FALSE;
+    }
+  } else {
+    GST_ERROR_OBJECT (self, "Unsupported scale up: %dx%d to %dx%d",
+                      in_width, in_height, out_width, out_height);
+    return FALSE;
+  }
 
   return TRUE;
 }
 
 static void
-update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer,
-    const crop_info * cinfo, GstVideoMeta * vmeta)
+gst_omx_video_dec_update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer,
+    gint out_width, gint out_height, GstVideoMeta * vmeta)
 {
   GstVideoCodecState *state =
       gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
@@ -1865,26 +1978,18 @@ update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer,
 
   GST_DEBUG_OBJECT (self, "update buffer meta");
 
-  for (i = 0; i < GST_VIDEO_INFO_N_PLANES (vinfo); i++) {
-    const GstVideoFormatInfo *finfo = vinfo->finfo;
-    vmeta->offset[i] += (vmeta->stride[i] *
-        GST_VIDEO_FORMAT_INFO_SCALE_HEIGHT (finfo, i, cinfo->crop_top))
-        + (GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (finfo, i, cinfo->crop_left) *
-        GST_VIDEO_FORMAT_INFO_PSTRIDE (finfo, i));
-  }
-
-  vmeta->width -= cinfo->crop_left;
-  vmeta->height -= cinfo->crop_top;
+  vmeta->width = out_width;
+  vmeta->height = out_height;
 }
 
 static gboolean
-update_output_state (GstOMXVideoDec * self, const crop_info * cinfo)
+gst_omx_video_dec_update_output_state (GstOMXVideoDec * self,
+    guint out_width, guint out_height)
 {
   GstVideoCodecState *state;
   gint state_width, state_height;
   GstOMXPort *port;
   OMX_PARAM_PORTDEFINITIONTYPE port_def;
-  guint cropped_width, cropped_height;
 
   state = gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
   state_width = GST_VIDEO_INFO_WIDTH (&state->info);
@@ -1893,13 +1998,10 @@ update_output_state (GstOMXVideoDec * self, const crop_info * cinfo)
   port = self->dec_out_port;
   gst_omx_port_get_port_definition (port, &port_def);
 
-  cropped_width = port_def.format.video.nFrameWidth - cinfo->crop_left;
-  cropped_height = port_def.format.video.nFrameHeight - cinfo->crop_top;
-
-  if (state_width != cropped_width || state_height != cropped_height) {
+  if (state_width != out_width || state_height != out_height) {
     gst_video_decoder_set_output_state (GST_VIDEO_DECODER (self),
         gst_omx_video_get_format_from_omx (port_def.format.video.eColorFormat),
-        cropped_width, cropped_height, state);
+        out_width, out_height, state);
     if (!gst_video_decoder_negotiate (GST_VIDEO_DECODER (self))) {
       GST_ERROR_OBJECT (self, "Negotiation failed");
       return FALSE;
@@ -1939,7 +2041,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
   GstOMXAcquireBufferReturn acq_return;
   OMX_ERRORTYPE err;
   GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
-  crop_info cinfo = { 0 };
+  gint out_width = 0, out_height = 0;
 
 #if defined (USE_OMX_TARGET_RPI) && defined (HAVE_GST_GL)
   port = self->eglimage ? self->egl_out_port : self->dec_out_port;
@@ -2077,14 +2179,18 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     gst_omx_video_dec_clean_older_frames (self, buf,
         gst_video_decoder_get_frames (GST_VIDEO_DECODER (self)));
 
-  if (self->enable_crop) {
-    if (!get_crop_info (self, &cinfo))
+  if (self->bypass == FALSE) {
+    if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height))
       goto component_error;
 
-    if (cinfo.crop_left || cinfo.crop_top) {
-      if (!update_output_state (self, &cinfo))
-        goto caps_failed;
+    if (self->enable_scale == TRUE) {
+      if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
+                                                          &out_height))
+        goto component_error;
     }
+
+    if (!gst_omx_video_dec_update_output_state (self, out_width, out_height))
+      goto caps_failed;
   }
 
   if (!frame && (buf->omx_buf->nFilledLen > 0 || buf->eglimage)) {
@@ -2124,12 +2230,12 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
             copy_frame (&GST_OMX_BUFFER_POOL (self->out_port_pool)->video_info,
             outbuf);
 
-      if (self->enable_crop && (cinfo.crop_top || cinfo.crop_left)) {
+      if (self->bypass == FALSE) {
         GstVideoMeta *vmeta;
-
         vmeta = gst_buffer_get_video_meta (outbuf);
         if (vmeta)
-          update_buffer_meta (self, outbuf, &cinfo, vmeta);
+          gst_omx_video_dec_update_buffer_meta (self, outbuf,
+                                                out_width, out_height, vmeta);
       }
 
       buf = NULL;
@@ -2176,12 +2282,12 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
             copy_frame (&GST_OMX_BUFFER_POOL (self->out_port_pool)->video_info,
             outbuf);
 
-      if (self->enable_crop && (cinfo.crop_top || cinfo.crop_left)) {
+      if (self->bypass == FALSE) {
         GstVideoMeta *vmeta;
-
         vmeta = gst_buffer_get_video_meta (outbuf);
         if (vmeta)
-          update_buffer_meta (self, outbuf, &cinfo, vmeta);
+          gst_omx_video_dec_update_buffer_meta (self, outbuf,
+                                                out_width, out_height, vmeta);
       }
 
       frame->output_buffer = outbuf;
@@ -2747,6 +2853,8 @@ static gboolean
 gst_omx_video_dec_enable (GstOMXVideoDec * self, GstBuffer * input)
 {
   GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
+  OMX_U32 min_stride = GST_OMX_VIDEO_DEC_MIN_STRIDE;
+  OMX_U32 min_sliceheight = GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT;
 
   GST_DEBUG_OBJECT (self, "Enabling component");
 
@@ -2809,10 +2917,19 @@ gst_omx_video_dec_enable (GstOMXVideoDec * self, GstBuffer * input)
       if (!gst_omx_video_dec_allocate_in_buffers (self))
         return FALSE;
 
+      /* Round up to get minimum stride and slice height follow bypass
+       * alignment */
       if (self->bypass) {
-        /* In G2L Bypass mode, allocate output buffers here instead
-         * of waiting for Event PortSettingChanged */
-        if (gst_omx_video_dec_configure_bypass(self))
+        min_stride = GST_ROUND_UP_128(GST_OMX_VIDEO_DEC_MIN_FRAMEWIDTH);
+        min_sliceheight = GST_ROUND_UP_32(GST_OMX_VIDEO_DEC_MIN_FRAMEHEIGHT);
+      }
+      /* If the input resolution is smaller than the minimum stride and slice
+       * height, no output pool will be created. Therefore, the output pool
+       * needs to be created manually. */
+      if ((self->dec_in_port->port_def.format.video.nFrameWidth <= min_stride)
+          && (self->dec_in_port->port_def.format.video.nFrameHeight
+              <= min_sliceheight)) {
+        if (gst_omx_video_dec_create_out_pool (self) != OMX_ErrorNone)
           return FALSE;
       } else {
         if (gst_omx_port_allocate_buffers (self->dec_out_port) != OMX_ErrorNone)
@@ -2913,6 +3030,8 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   gboolean needs_disable = FALSE;
   OMX_PARAM_PORTDEFINITIONTYPE port_def;
   OMX_U32 framerate_q16 = gst_omx_video_calculate_framerate_q16 (info);
+  OMX_U32 min_stride = GST_OMX_VIDEO_DEC_MIN_STRIDE;
+  OMX_U32 min_sliceheight = GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT;
 
   self = GST_OMX_VIDEO_DEC (decoder);
   klass = GST_OMX_VIDEO_DEC_GET_CLASS (decoder);
@@ -3070,6 +3189,20 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       self->bypass = sBypass.bEnable;
     }
   }
+
+  if (!self->disabled && self->enable_scale == TRUE) {
+    /* Setting scale ratio base on current video information. If resolution is
+     * smaller than or equal to 96x80, there is no PSC returned by OMX.
+     * Therefore, scaling is not supported for these resolution */
+    if (info->width > 96 || info->height > 80) {
+      if (!get_omx_video_dec_set_scale (self, info->width, info->height))
+        return FALSE;
+    } else {
+      GST_ERROR_OBJECT (self, "Unsupported scaling for %dx%d resolution",
+                        info->width, info->height);
+      return FALSE;
+    }
+  }
 #else
   if (self->no_reorder != FALSE)
     GST_ERROR_OBJECT (self,
@@ -3082,15 +3215,30 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
 
   GST_DEBUG_OBJECT (self, "Updating ports definition");
 #ifdef USE_OMX_TARGET_RZ
-  if ((!self->disabled) && (self->bypass)) {
+  if (!self->disabled) {
     OMX_PARAM_PORTDEFINITIONTYPE out_port_def;
+
+    /* Initialize default output allocation align for page size
+     * Choose 96x80 because they are close to minimum 80 */
     gst_omx_port_get_port_definition (self->dec_out_port, &out_port_def);
-    /* In G2L Bypass mode, OMX will not send Event PortSettingChanged
-      * so application has to set parameters for output port manually */
-    out_port_def.format.video.nFrameWidth =  info->width;
-    out_port_def.format.video.nFrameHeight =  info->height;
-    out_port_def.format.video.nStride = (info->width+127)/128*128;
-    out_port_def.format.video.nSliceHeight = (info->height+15)/16*16;
+    /* Round up to get minimum stride and slice height follow bypass
+      * alignment */
+    if (self->bypass) {
+      min_stride = GST_ROUND_UP_128(GST_OMX_VIDEO_DEC_MIN_FRAMEWIDTH);
+      min_sliceheight = GST_ROUND_UP_32(GST_OMX_VIDEO_DEC_MIN_FRAMEHEIGHT);
+    }
+    /* If the input resolution is smaller than the minimum stride and slice
+      * height, the output will not be reconfigured. Therefore, the output size
+      * needs to be manually adjusted instead of taking the default value. */
+    if ((info->width <= min_stride) && (info->height <= min_sliceheight)) {
+      out_port_def.format.video.nFrameWidth =  info->width;
+      out_port_def.format.video.nFrameHeight =  info->height;
+    }
+    /* To OMX can raise OMX_EventPortSettingsChanged if the input resolution
+      * is larger than the minimum stride and slice height. */
+    out_port_def.format.video.nStride = min_stride;
+    out_port_def.format.video.nSliceHeight = min_sliceheight;
+
     if (gst_omx_port_update_port_definition (self->dec_out_port,
             &out_port_def) != OMX_ErrorNone)
       return FALSE;
@@ -3111,6 +3259,15 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
   gst_omx_video_dec_set_latency (self);
 #endif
+
+  /* Setting bSkipInterframe is OMX_TRUE (skip error frame) */
+  if (klass->cdata.hacks & GST_OMX_HACK_SKIP_ERROR_FRAME) {
+      OMXR_MC_VIDEO_PARAM_ERROR_CONCEALMENTTYPE   videoParamErrorConcealment;
+      GST_OMX_INIT_STRUCT (&videoParamErrorConcealment);
+      videoParamErrorConcealment.nPortIndex       = 1;
+      videoParamErrorConcealment.bSkipInterframe  = OMX_TRUE;
+      gst_omx_component_set_parameter(self->dec, OMXR_MC_IndexParamVideoErrorConcealment, &videoParamErrorConcealment);
+  }
 
   self->downstream_flow_ret = GST_FLOW_OK;
   return TRUE;
@@ -3752,3 +3909,53 @@ gst_omx_video_dec_propose_allocation (GstVideoDecoder * bdec, GstQuery * query)
       GST_VIDEO_DECODER_CLASS
       (gst_omx_video_dec_parent_class)->propose_allocation (bdec, query);
 }
+
+static gboolean
+gst_omx_video_dec_sink_query (GstVideoDecoder * decoder, GstQuery * query)
+{
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (decoder);
+  GstPad *pad = GST_VIDEO_DECODER_SINK_PAD (self);
+
+  GST_LOG_OBJECT (self, "handling query: %" GST_PTR_FORMAT, query);
+
+  if (self->dec) {
+    if (self->enable_scale == TRUE && GST_QUERY_TYPE (query) == GST_QUERY_CAPS) {
+      GstCaps *filter, *caps;
+
+      gst_query_parse_caps (query, &filter);
+      caps = gst_video_decoder_proxy_getcaps (decoder, NULL, filter);
+
+      if (filter == NULL || gst_caps_is_empty (caps)) {
+        GST_DEBUG_OBJECT(self,
+                         "No available proxy caps, using sink pad instead");
+        gst_caps_replace (&caps, gst_pad_get_pad_template_caps (pad));
+      }
+
+      GST_LOG_OBJECT (self, "Returning caps %" GST_PTR_FORMAT, caps);
+      gst_query_set_caps_result (query, caps);
+      gst_caps_unref (caps);
+
+      return TRUE;
+    }
+  }
+
+  return
+    GST_VIDEO_DECODER_CLASS
+    (gst_omx_video_dec_parent_class)->sink_query (decoder, query);
+}
+
+static gint
+gst_omx_video_dec_calculate_scale_ratio (gint new_length, gint length)
+{
+  gulong scale_ratio;
+
+  if (new_length == 0 || length == 0) {
+    return 0x10000;
+  }
+
+  scale_ratio = ((gulong)new_length << 32) / length;
+
+  /* Convert to Q15.16 format */
+  return (gint)(scale_ratio >> 16);
+}
+

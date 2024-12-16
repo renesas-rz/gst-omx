@@ -49,13 +49,6 @@ G_BEGIN_DECLS
 
 typedef struct _GstOMXVideoDec GstOMXVideoDec;
 typedef struct _GstOMXVideoDecClass GstOMXVideoDecClass;
-typedef struct _crop_info crop_info;
-
-struct _crop_info
-{
-  gint crop_left;
-  gint crop_top;
-};
 
 struct _GstOMXVideoDec
 {
@@ -119,12 +112,12 @@ struct _GstOMXVideoDec
   gboolean lossy_compress;
   /* TRUE when set_property() runs */
   gboolean has_set_property;
-  /* Set TRUE to crop as info of conf_win_left_offset and conf_win_top_offset */
-  gboolean enable_crop;
   /* Set TRUE to use Bypass mode in OMX */
   gboolean bypass;
   /* Number of output buffers that are required on output port */
   guint32 num_outbufs;
+  /* Set TRUE to scale output video using src caps */
+  gboolean enable_scale;
 };
 
 struct _GstOMXVideoDecClass

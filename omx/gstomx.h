@@ -228,6 +228,10 @@ G_BEGIN_DECLS
  */
 #define GST_OMX_HACK_RENESAS_ENCMC_STRIDE_ALIGN                       G_GUINT64_CONSTANT (0x0000000000020000)
 
+/* Support set bSkipInterframe is OMX_TRUE.
+ */
+#define GST_OMX_HACK_SKIP_ERROR_FRAME                  G_GUINT64_CONSTANT (0x0000000000080000)
+
 typedef struct _GstOMXCore GstOMXCore;
 typedef struct _GstOMXPort GstOMXPort;
 typedef enum _GstOMXPortDirection GstOMXPortDirection;
