@@ -24,6 +24,10 @@
 
 #include "gstomxh264utils.h"
 
+#if defined(USE_OMX_TARGET_RZ) && defined(HAVE_H264_EXT)
+#include <OMXR_Extension_h264.h>
+#endif
+
 typedef struct
 {
   const gchar *profile;
@@ -35,6 +39,8 @@ static const H264ProfileMapping h264_profiles[] = {
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
   {"constrained-baseline",
       (OMX_VIDEO_AVCPROFILETYPE) OMX_ALG_VIDEO_AVCProfileConstrainedBaseline},
+#elif defined(USE_OMX_TARGET_RZ) && defined(HAVE_H264_EXT)
+  {"constrained-baseline", OMXR_MC_VIDEO_AVCProfileConstrainedBaseline},
 #else
   {"constrained-baseline", OMX_VIDEO_AVCProfileBaseline},
 #endif
@@ -51,6 +57,13 @@ static const H264ProfileMapping h264_profiles[] = {
       (OMX_VIDEO_AVCPROFILETYPE) OMX_ALG_VIDEO_AVCProfileHigh10_Intra},
   {"high-4:2:2-intra",
       (OMX_VIDEO_AVCPROFILETYPE) OMX_ALG_VIDEO_AVCProfileHigh422_Intra},
+#elif defined(USE_OMX_TARGET_RZ) && defined(HAVE_H264_EXT)
+#ifdef OMXR_MC_VIDEO_AVCProfileProgressiveHigh
+  {"progressive-high", OMXR_MC_VIDEO_AVCProfileProgressiveHigh},
+#endif
+#ifdef OMXR_MC_VIDEO_AVCProfileConstrainedHigh
+  {"constrained-high", OMXR_MC_VIDEO_AVCProfileConstrainedHigh},
+#endif
 #endif
 };
 
