@@ -968,6 +968,34 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       goto done;
     }
 
+    /* If downstream requires video alignment, we consider to update it */
+    if (gst_buffer_pool_has_option (pool,
+                                    GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT)) {
+      GstVideoAlignment align;
+
+      /* Get alignment */
+      gst_video_alignment_reset (&align);
+      gst_buffer_pool_config_get_video_alignment (config, &align);
+
+      if (!gst_omx_port_is_enabled (port)) {
+        err = gst_omx_port_update_port_definition (port, NULL);
+        if (err == OMX_ErrorNone) {
+          port->port_def.format.video.nStride =
+              GST_ROUND_UP_N (port->port_def.format.video.nStride,
+                              GST_ROUND_UP_2 (align.stride_align[0]));
+          err = gst_omx_port_update_port_definition (port, &port->port_def);
+        }
+
+        if (err != OMX_ErrorNone) {
+          GST_ERROR_OBJECT (self,
+              "Failed to round up nStride with alignment requirement (%d) "
+              "from downstream: %s (0x%08x)", align.stride_align[0],
+              gst_omx_error_to_string (err), err);
+          goto done;
+        }
+      }
+    }
+
     /* Need at least 4 buffers for anything meaningful but Bypass mode need
      * at least 5 buffers */
     min_outbuf = self->bypass ? 5 : 4;
