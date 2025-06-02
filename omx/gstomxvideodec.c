@@ -1504,7 +1504,7 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
   OMX_PARAM_PORTDEFINITIONTYPE port_def;
   GstVideoFormat format;
   GstVideoInterlaceMode interlace_mode;
-  guint frame_height;
+  gint out_width, out_height;
   GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
 
   /* At this point the decoder output port is disabled */
@@ -1533,12 +1533,13 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
       gst_omx_port_get_port_definition (self->dec_out_port, &port_def);
       GST_VIDEO_DECODER_STREAM_LOCK (self);
 
-      frame_height = port_def.format.video.nFrameHeight;
+      out_width = port_def.format.video.nFrameWidth;
+      out_height = port_def.format.video.nFrameHeight;
       /* OMX's frame height is actually the field height in alternate mode
        * while it's always the full frame height in gst. */
       if (interlace_mode == GST_VIDEO_INTERLACE_MODE_ALTERNATE ||
           interlace_mode == GST_VIDEO_INTERLACE_MODE_INTERLEAVED) {
-        frame_height *= 2;
+        out_height *= 2;
         /* Decoder outputs interlaced content using the alternate mode */
         interlace_mode = GST_VIDEO_INTERLACE_MODE_ALTERNATE;
       }
@@ -1546,7 +1547,7 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
       state =
           gst_video_decoder_set_interlaced_output_state (GST_VIDEO_DECODER
           (self), GST_VIDEO_FORMAT_RGBA, interlace_mode,
-          port_def.format.video.nFrameWidth, frame_height, self->input_state);
+          out_width, out_height, self->input_state);
 
       /* at this point state->caps is NULL */
       if (state->caps)
@@ -1747,33 +1748,34 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
 
   /* Update scale ratio base on decoded information */
   if (self->bypass == FALSE) {
-    gint cropped_width, cropped_height;
-
-    if (!gst_omx_video_dec_get_cropped_resolution (self, &cropped_width,
-                                                   &cropped_height))
+    if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height))
       goto done;
 
-    if (!get_omx_video_dec_set_scale (self, cropped_width, cropped_height))
+    if (!get_omx_video_dec_set_scale (self, out_width, out_height))
       goto done;
 
     /* If there is cropped information in SPS, it means scale ratio is
      * calculated incorrectly. So, nStride / nSliceHeight updated by OMX should
      * not be used. */
-    if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &cropped_width,
-                                                        &cropped_height))
+    if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
+                                                        &out_height))
       goto done;
-    port_def.format.video.nStride      = cropped_width;
-    port_def.format.video.nSliceHeight = cropped_height;
+
+    port_def.format.video.nStride = out_width;
+    port_def.format.video.nSliceHeight = out_height;
+  }
+  else {
+    out_width = port_def.format.video.nFrameWidth;
+    out_height = port_def.format.video.nFrameHeight;
   }
 
   gst_omx_port_update_port_definition (port, &port_def);
 
-  frame_height = port_def.format.video.nFrameHeight;
   /* OMX's frame height is actually the field height in alternate mode
    * while it's always the full frame height in gst. */
   if (interlace_mode == GST_VIDEO_INTERLACE_MODE_ALTERNATE ||
       interlace_mode == GST_VIDEO_INTERLACE_MODE_INTERLEAVED) {
-    frame_height *= 2;
+    out_height *= 2;
     /* Decoder outputs interlaced content using the alternate mode */
     interlace_mode = GST_VIDEO_INTERLACE_MODE_ALTERNATE;
   }
@@ -1782,12 +1784,11 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
       "Setting output state: format %s (%d), width %u, height %u",
       gst_video_format_to_string (format),
       port_def.format.video.eColorFormat,
-      (guint) port_def.format.video.nFrameWidth, frame_height);
+      out_width, out_height);
 
   state =
       gst_video_decoder_set_interlaced_output_state (GST_VIDEO_DECODER (self),
-      format, interlace_mode, port_def.format.video.nFrameWidth,
-      frame_height, self->input_state);
+      format, interlace_mode, out_width, out_height, self->input_state);
 
   if (klass->cdata.hacks & GST_OMX_HACK_DEFAULT_PIXEL_ASPECT_RATIO) {
     /* Set pixel-aspect-ratio is 1/1. It means that always keep
