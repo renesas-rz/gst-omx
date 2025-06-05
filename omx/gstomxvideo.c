@@ -64,14 +64,10 @@ gst_omx_video_get_format_from_omx (OMX_COLOR_FORMATTYPE omx_colorformat)
       format = GST_VIDEO_FORMAT_UYVY;
       break;
     case OMX_COLOR_Format32bitARGB8888:
-      /* There is a mismatch in omxil specification 4.2.1 between
-       * OMX_COLOR_Format32bitARGB8888 and its description
-       * Follow the description */
-      format = GST_VIDEO_FORMAT_ABGR;
+      format = GST_VIDEO_FORMAT_ARGB;
       break;
     case OMX_COLOR_Format32bitBGRA8888:
-      /* Same issue as OMX_COLOR_Format32bitARGB8888 */
-      format = GST_VIDEO_FORMAT_ARGB;
+      format = GST_VIDEO_FORMAT_BGRA;
       break;
     case OMX_COLOR_Format16bitRGB565:
       format = GST_VIDEO_FORMAT_RGB16;
