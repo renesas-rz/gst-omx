@@ -713,7 +713,13 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
     switch (GST_VIDEO_INFO_FORMAT (vinfo)) {
       case GST_VIDEO_FORMAT_ABGR:
       case GST_VIDEO_FORMAT_ARGB:
+      case GST_VIDEO_FORMAT_BGRA:
+      case GST_VIDEO_FORMAT_RGBA:
         dst_width[0] = GST_VIDEO_INFO_WIDTH (vinfo) * 4;
+        break;
+      case GST_VIDEO_FORMAT_BGR:
+      case GST_VIDEO_FORMAT_RGB:
+        dst_width[0] = GST_VIDEO_INFO_WIDTH (vinfo) * 3;
         break;
       case GST_VIDEO_FORMAT_RGB16:
       case GST_VIDEO_FORMAT_BGR16:
@@ -1506,6 +1512,7 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
   GstVideoInterlaceMode interlace_mode;
   gint out_width, out_height;
   GstOMXVideoDecClass *klass = GST_OMX_VIDEO_DEC_GET_CLASS (self);
+  const GstVideoFormatInfo *info;
 
   /* At this point the decoder output port is disabled */
   interlace_mode = gst_omx_video_dec_get_output_interlace_info (self);
@@ -1740,6 +1747,8 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
     goto done;
   }
 
+  info = gst_video_format_get_info (format);
+
   /* FIXME: In case decode FullHD video, the decode size is 1920x1088. However,
    * maxmimum supported image size of G2L is only 1920x1080. So, output buffer
    * could not be used by downstream plugins */
@@ -1761,7 +1770,8 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
                                                         &out_height))
       goto done;
 
-    port_def.format.video.nStride = out_width;
+    port_def.format.video.nStride =
+        out_width * GST_VIDEO_FORMAT_INFO_PSTRIDE(info, 0);
     port_def.format.video.nSliceHeight = out_height;
   }
   else {

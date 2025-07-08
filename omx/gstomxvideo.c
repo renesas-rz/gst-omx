@@ -28,6 +28,10 @@
 
 #include "gstomxvideo.h"
 
+#ifdef HAVE_VIDEO_EXT_FORMAT
+#include "OMXR_Extension_video.h"
+#endif
+
 #include <math.h>
 
 GST_DEBUG_CATEGORY (gst_omx_video_debug_category);
@@ -78,6 +82,9 @@ gst_omx_video_get_format_from_omx (OMX_COLOR_FORMATTYPE omx_colorformat)
     case OMX_COLOR_Format24bitBGR888:
       format = GST_VIDEO_FORMAT_BGR;
       break;
+    case OMX_COLOR_Format24bitRGB888:
+      format = GST_VIDEO_FORMAT_RGB;
+      break;
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
       /* Formats defined in extensions have their own enum so disable to -Wswitch warning */
 #pragma GCC diagnostic push
@@ -87,6 +94,18 @@ gst_omx_video_get_format_from_omx (OMX_COLOR_FORMATTYPE omx_colorformat)
       break;
     case OMX_ALG_COLOR_FormatYUV422SemiPlanar10bitPacked:
       format = GST_VIDEO_FORMAT_NV16_10LE32;
+      break;
+#pragma GCC diagnostic pop
+#endif
+#ifdef HAVE_VIDEO_EXT_FORMAT
+      /* Formats defined in extensions have their own enum so disable to -Wswitch warning */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wswitch"
+    case OMX_COLOR_Format32bitRGBA8888:
+      format = GST_VIDEO_FORMAT_RGBA;
+      break;
+    case OMX_COLOR_Format32bitABGR8888:
+      format = GST_VIDEO_FORMAT_ABGR;
       break;
 #pragma GCC diagnostic pop
 #endif

@@ -354,6 +354,10 @@ gst_omx_buffer_pool_alloc_buffer (GstBufferPool * bpool,
     switch (GST_VIDEO_INFO_FORMAT (&pool->video_info)) {
       case GST_VIDEO_FORMAT_ABGR:
       case GST_VIDEO_FORMAT_ARGB:
+      case GST_VIDEO_FORMAT_BGRA:
+      case GST_VIDEO_FORMAT_RGBA:
+      case GST_VIDEO_FORMAT_BGR:
+      case GST_VIDEO_FORMAT_RGB:
       case GST_VIDEO_FORMAT_RGB16:
       case GST_VIDEO_FORMAT_BGR16:
       case GST_VIDEO_FORMAT_YUY2:

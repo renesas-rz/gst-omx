@@ -408,6 +408,16 @@ if have_h265e_ext
   cdata.set('HAVE_H265E_EXT', 1)
 endif
 
+have_videodec_ext_format = cc.has_header_symbol(
+    'OMXR_Extension_video.h',
+    'OMX_COLOR_Format32bitRGBA8888',
+    prefix : extra_video_headers,
+    args : gst_omx_args,
+    include_directories : [omx_inc])
+if have_videodec_ext_format
+  cdata.set('HAVE_VIDEO_EXT_FORMAT', 1)
+endif
+
 if gstgl_dep.found()
   cdata.set ('HAVE_GST_GL', 1)
 endif
