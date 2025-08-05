@@ -3254,25 +3254,6 @@ gst_omx_video_enc_fill_buffer (GstOMXVideoEnc * self, GstBuffer * inbuf,
     goto done;
   }
 
-  /* Same strides and everything */
-  if ((gst_buffer_get_size (inbuf) ==
-          outbuf->omx_buf->nAllocLen - outbuf->omx_buf->nOffset) &&
-      (stride == port_def->format.video.nStride)) {
-    outbuf->omx_buf->nFilledLen = gst_buffer_get_size (inbuf);
-
-    GST_LOG_OBJECT (self, "Matched strides - direct copy %u bytes",
-        (guint) outbuf->omx_buf->nFilledLen);
-
-    gst_buffer_extract (inbuf, 0,
-        outbuf->omx_buf->pBuffer + outbuf->omx_buf->nOffset,
-        outbuf->omx_buf->nFilledLen);
-    ret = TRUE;
-    goto done;
-  }
-
-  /* Different strides */
-  GST_LOG_OBJECT (self, "Mismatched strides - copying line-by-line");
-
   switch (info->finfo->format) {
     case GST_VIDEO_FORMAT_I420:{
       gint i, j, height, width;
