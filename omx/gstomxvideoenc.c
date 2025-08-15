@@ -347,6 +347,7 @@ enum
   PROP_NO_COPY,
   PROP_USE_DMABUF,
   PROP_ENABLE_CROP,
+  PROP_USER_SIZEBYTES,
 };
 
 /* FIXME: Better defaults */
@@ -373,6 +374,8 @@ enum
 #define GST_OMX_VIDEO_ENC_DEFAULT_ROI_QUALITY OMX_ALG_ROI_QUALITY_HIGH
 #define GST_OMX_VIDEO_ENC_SCAN_TYPE_DEFAULT (0xffffffff)
 #define GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT (0)
+#define GST_OMX_VIDEO_ENC_USER_SIZEBYTES_MAXIMUM    (G_MAXUINT)
+#define GST_OMX_VIDEO_ENC_USER_SIZEBYTES_DEFAULT    (0)
 
 /* class initialization */
 #define do_init \
@@ -457,6 +460,14 @@ gst_omx_video_enc_class_init (GstOMXVideoEncClass * klass)
       g_param_spec_string ("crop", "Crop information",
           "Crop of each sides in raw stream. Format: \"left:right:top:bottom\".",
           NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
+   g_object_class_install_property (gobject_class, PROP_USER_SIZEBYTES,
+      g_param_spec_uint ("sizebytes",
+          "The size of allocation buffer",
+          "Change the size of allocation buffer for the output port",
+          0, GST_OMX_VIDEO_ENC_USER_SIZEBYTES_MAXIMUM,
+          GST_OMX_VIDEO_ENC_USER_SIZEBYTES_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
 
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
@@ -627,6 +638,7 @@ gst_omx_video_enc_init (GstOMXVideoEnc * self)
   self->crop.right  = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
   self->crop.top    = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
   self->crop.bottom = GST_OMX_VIDEO_ENC_CROP_SIZE_DEFAULT;
+  self->nSizeBytes = GST_OMX_VIDEO_ENC_USER_SIZEBYTES_DEFAULT;
 #if defined (HAVE_MMNGRBUF) && defined (HAVE_VIDEOR_EXT)
   self->fd_table_array = g_array_new (FALSE, FALSE, sizeof (fd_table));
   self->id_array = g_array_new (FALSE, FALSE, sizeof (gint));
@@ -991,6 +1003,16 @@ gst_omx_video_enc_open (GstVideoEncoder * encoder)
 
   self->enc_in_port = gst_omx_component_add_port (self->enc, in_port_index);
   self->enc_out_port = gst_omx_component_add_port (self->enc, out_port_index);
+  if (self->nSizeBytes < self->enc_out_port->port_def.nBufferSize) {
+    if (self->nSizeBytes != 0) {
+      GST_ELEMENT_WARNING (self, LIBRARY, FAILED,
+                          ("The sizebytes value is rounded up to %d.", self->enc_out_port->port_def.nBufferSize),
+                          ("Your sizebytes value (%d) is smaller than the minimum nBufferSize (%d)\n", self->nSizeBytes, self->enc_out_port->port_def.nBufferSize));
+    }
+    self->enc_out_port->nSizeBytes = self->enc_out_port->port_def.nBufferSize;
+  } else {
+    self->enc_out_port->nSizeBytes = self->nSizeBytes;
+  }
 
   if (!self->enc_in_port || !self->enc_out_port)
     return FALSE;
@@ -1214,6 +1236,9 @@ gst_omx_video_enc_set_property (GObject * object, guint prop_id,
     case PROP_ENABLE_CROP:
       self->enable_crop = gst_omx_video_enc_parse_cropsize (object, value);
       break;
+    case PROP_USER_SIZEBYTES:
+      self->nSizeBytes = g_value_get_uint (value);
+      break;
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
     case PROP_QP_MODE:
       self->qp_mode = g_value_get_enum (value);
@@ -1312,6 +1337,9 @@ gst_omx_video_enc_get_property (GObject * object, guint prop_id, GValue * value,
         g_value_set_string (value, str_value);
         g_free (str_value);
       }
+      break;
+    case PROP_USER_SIZEBYTES:
+      g_value_set_uint (value, self->nSizeBytes);
       break;
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
     case PROP_QP_MODE:

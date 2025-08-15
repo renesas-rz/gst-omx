@@ -143,6 +143,8 @@ struct _GstOMXVideoEnc
 
   /* TRUE if input buffers are from the pool we proposed to upstream */
   gboolean in_pool_used;
+  /* Size of allocation buffer of output-port (ENCODER) */
+  guint32 nSizeBytes;
 
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
   GEnumClass *alg_roi_quality_enum_class;

@@ -118,6 +118,8 @@ struct _GstOMXVideoDec
   guint32 num_outbufs;
   /* Set TRUE to scale output video using src caps */
   gboolean enable_scale;
+  /* Size of allocation buffer of in-port (DECODER) */
+  guint32 nSizeBytes;
 };
 
 struct _GstOMXVideoDecClass

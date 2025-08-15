@@ -111,6 +111,7 @@ enum
   PROP_BYPASS,
   PROP_NUM_OUTPUT_BUFFER,
   PROP_ENABLE_SCALE,
+  PROP_USER_SIZEBYTES,
 };
 
 #define GST_OMX_VIDEO_DEC_INTERNAL_ENTROPY_BUFFERS_DEFAULT (5)
@@ -122,6 +123,8 @@ enum
 #define GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT                  (80)
 #define GST_OMX_VIDEO_DEC_MAX_FRAMEWIDTH                   (1920)
 #define GST_OMX_VIDEO_DEC_MAX_FRAMEHEIGHT                  (1080)
+#define GST_OMX_VIDEO_DEC_USER_SIZEBYTES_MAXIMUM    (G_MAXUINT)
+#define GST_OMX_VIDEO_DEC_USER_SIZEBYTES_DEFAULT    (0)
 
 /* class initialization */
 
@@ -156,6 +159,9 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
       break;
     case PROP_ENABLE_CROP:
       /* Deprecated from OMX v1.3.0 */
+      break;
+    case PROP_USER_SIZEBYTES:
+      self->nSizeBytes = g_value_get_uint (value);
       break;
 #ifdef HAVE_VIDEODEC_EXT
     case PROP_NO_REORDER:
@@ -233,6 +239,9 @@ gst_omx_video_dec_get_property (GObject * object, guint prop_id,
     case PROP_ENABLE_SCALE:
       g_value_set_boolean (value, self->enable_scale);
       break;
+    case PROP_USER_SIZEBYTES:
+      g_value_set_uint (value, self->nSizeBytes);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -309,6 +318,14 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
           "Whether or not to enable scaling if Bypass mode is disabled",
           TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
+   g_object_class_install_property (gobject_class, PROP_USER_SIZEBYTES,
+      g_param_spec_uint ("sizebytes",
+          "The size of allocation buffer",
+          "Change the size of allocation buffer for the input port",
+          0, GST_OMX_VIDEO_DEC_USER_SIZEBYTES_MAXIMUM,
+          GST_OMX_VIDEO_DEC_USER_SIZEBYTES_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
+          GST_PARAM_MUTABLE_READY));
 
   element_class->change_state =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_change_state);
@@ -360,6 +377,7 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   /* The default value is 0, which means the number of output buffers will be
    * automatically updated when allocated */
   self->num_outbufs = GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT;
+  self->nSizeBytes = GST_OMX_VIDEO_DEC_USER_SIZEBYTES_DEFAULT;
 
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
   gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST
@@ -458,6 +476,16 @@ gst_omx_video_dec_open (GstVideoDecoder * decoder)
   }
   self->dec_in_port = gst_omx_component_add_port (self->dec, in_port_index);
   self->dec_out_port = gst_omx_component_add_port (self->dec, out_port_index);
+  if (self->nSizeBytes < self->dec_in_port->port_def.nBufferSize) {
+    if (self->nSizeBytes != 0 ) {
+      GST_ELEMENT_WARNING (self, LIBRARY, FAILED,
+                          ("The sizebytes value is rounded up to %d.", self->dec_in_port->port_def.nBufferSize),
+                          ("Your sizebytes value (%d) is smaller than the minimum nBufferSize (%d)\n", self->nSizeBytes, self->dec_in_port->port_def.nBufferSize));
+    }
+    self->dec_in_port->nSizeBytes = self->dec_in_port->port_def.nBufferSize;
+  } else {
+    self->dec_in_port->nSizeBytes = self->nSizeBytes;
+  }
 
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
   GST_DEBUG_OBJECT (self, "Configure decoder output to export dmabuf");
