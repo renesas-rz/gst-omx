@@ -2600,9 +2600,15 @@ gst_omx_port_allocate_buffers_unlocked (GstOMXPort * port,
           l->data);
       buf->eglimage = TRUE;
     } else {
-      err =
-          OMX_AllocateBuffer (comp->handle, &buf->omx_buf, port->index, buf,
-          port->port_def.nBufferSize);
+      if (port->nSizeBytes != 0){
+        err =
+            OMX_AllocateBuffer (comp->handle, &buf->omx_buf, port->index, buf,
+            port->nSizeBytes);
+      } else {
+        err =
+            OMX_AllocateBuffer (comp->handle, &buf->omx_buf, port->index, buf,
+            port->port_def.nBufferSize);
+      }
       buf->eglimage = FALSE;
     }
 

@@ -365,6 +365,7 @@ struct _GstOMXPort {
    */
   gint settings_cookie;
   gint configured_settings_cookie;
+  guint32 nSizeBytes;
 };
 
 struct _GstOMXComponent {

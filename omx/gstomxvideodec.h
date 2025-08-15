@@ -116,6 +116,8 @@ struct _GstOMXVideoDec
   gboolean bypass;
   /* Number of output buffers that are required on output port */
   guint32 num_outbufs;
+  /* Size of allocation buffer of input-port (DECODER) */
+  guint32 nSizeBytes;
 };
 
 struct _GstOMXVideoDecClass
