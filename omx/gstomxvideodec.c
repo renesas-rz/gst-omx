@@ -1798,9 +1798,10 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
                                                         &out_height))
       goto done;
 
-    port_def.format.video.nStride =
-        out_width * GST_VIDEO_FORMAT_INFO_PSTRIDE(info, 0);
-    port_def.format.video.nSliceHeight = out_height;
+    port_def.format.video.nStride = MAX (out_width *
+        GST_VIDEO_FORMAT_INFO_PSTRIDE(info, 0), GST_OMX_VIDEO_DEC_MIN_STRIDE);
+    port_def.format.video.nSliceHeight = MAX (out_height,
+        GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT);
   }
   else {
     out_width = port_def.format.video.nFrameWidth;
