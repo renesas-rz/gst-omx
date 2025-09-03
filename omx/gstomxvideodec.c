@@ -112,6 +112,8 @@ enum
   PROP_USER_SIZEBYTES,
 };
 
+#define IS_POWER_OF_2(x)                                   ((x > 0) && ((x & (x - 1)) == 0))
+
 #define GST_OMX_VIDEO_DEC_INTERNAL_ENTROPY_BUFFERS_DEFAULT (5)
 #define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT    (0)
 #define GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM    (32)
@@ -974,7 +976,8 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
       gst_video_alignment_reset (&align);
       gst_buffer_pool_config_get_video_alignment (config, &align);
 
-      if (!gst_omx_port_is_enabled (port)) {
+      if (!gst_omx_port_is_enabled (port) &&
+          IS_POWER_OF_2 (GST_ROUND_UP_2 (align.stride_align[0]))) {
         err = gst_omx_port_update_port_definition (port, NULL);
         if (err == OMX_ErrorNone) {
           port->port_def.format.video.nStride =
