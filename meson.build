@@ -231,6 +231,22 @@ elif omx_target == 'tizonia'
 elif omx_target == 'rz'
   cdata.set('USE_OMX_TARGET_RZ', 1)
 
+  # check supported RZ target board
+  target_board = get_option ('target_board')
+  if target_board == 'none'
+    error ('The board is not specified. Use the -Dtarget_board option to define the target board')
+  else
+    if target_board in ['rzg2l', 'rzv2l']
+      target_board = 'rzg2l'
+    elif target_board in ['rzv2h', 'rzv2n']
+      target_board = 'rzv2h'
+    elif target_board == 'rzg3e'
+      target_board = 'rzg3e'
+    else
+      error ('Unsupported board: ' + target_board)
+    endif
+  endif
+
   # check mmngrbuf library and function to use dmabuf exporter
   lib_mmngrbuf = cc.find_library('mmngrbuf', required : false)
   have_mmngrbuf = cc.has_function('mmngr_export_start_in_user', dependencies : lib_mmngrbuf)
