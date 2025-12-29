@@ -36,8 +36,8 @@ G_BEGIN_DECLS
 
 /* Keep synced with gst_omx_video_get_format_from_omx(). Sort by decreasing quality */
 #define GST_OMX_VIDEO_DEC_SUPPORTED_FORMATS "{ NV16_10LE32, NV12_10LE32, " \
-  "NV16, YUY2, YVYU, UYVY, NV12, I420, RGB16, BGR16, ABGR, ARGB, GRAY8, " \
-  "RGB, BGR, BGRA, RGBA }"
+  "Y42B, NV16, YUY2, YVYU, UYVY, NV12, I420, RGB16, BGR16, ABGR, ARGB,   " \
+  "GRAY8, RGB, BGR, BGRA, RGBA }"
 
 #define GST_OMX_VIDEO_ENC_SUPPORTED_FORMATS "{ NV16_10LE32, NV12_10LE32, " \
   "NV16, NV12, I420, GRAY8 }"

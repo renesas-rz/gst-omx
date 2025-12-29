@@ -773,6 +773,17 @@ gst_omx_video_dec_fill_buffer (GstOMXVideoDec * self,
         dst_width[2] = GST_VIDEO_INFO_WIDTH (vinfo) / 2;
         dst_height[2] = GST_VIDEO_INFO_FIELD_HEIGHT (vinfo) / 2;
         break;
+      case GST_VIDEO_FORMAT_Y42B:
+        dst_width[0] = GST_VIDEO_INFO_WIDTH (vinfo);
+        src_stride[1] = nstride / 2;
+        src_size[1] = (src_stride[1] * nslice);
+        dst_width[1] = GST_VIDEO_INFO_WIDTH (vinfo) / 2;
+        dst_height[1] = GST_VIDEO_INFO_FIELD_HEIGHT (vinfo);
+        src_stride[2] = nstride / 2;
+        src_size[2] = (src_stride[1] * nslice);
+        dst_width[2] = GST_VIDEO_INFO_WIDTH (vinfo) / 2;
+        dst_height[2] = GST_VIDEO_INFO_FIELD_HEIGHT (vinfo);
+        break;
       case GST_VIDEO_FORMAT_NV12:
         dst_width[0] = GST_VIDEO_INFO_WIDTH (vinfo);
         src_stride[1] = nstride;
