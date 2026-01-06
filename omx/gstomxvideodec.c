@@ -347,6 +347,7 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
    * automatically updated when allocated */
   self->num_outbufs = GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT;
   self->nSizeBytes = GST_OMX_VIDEO_DEC_USER_SIZEBYTES_DEFAULT;
+  self->output_state_updated = FALSE;
 
   gst_video_decoder_set_packetized (GST_VIDEO_DECODER (self), TRUE);
   gst_video_decoder_set_use_default_pad_acceptcaps (GST_VIDEO_DECODER_CAST
@@ -1729,6 +1730,10 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
 
   gst_video_codec_state_unref (state);
 
+  /* OMX component no needs to update the output state again after
+   * the full reconfiguration procedure above */
+  self->output_state_updated = TRUE;
+
   GST_VIDEO_DECODER_STREAM_UNLOCK (self);
 
 #if defined (HAVE_GST_GL)
@@ -1997,7 +2002,7 @@ get_omx_video_dec_set_scale (GstOMXVideoDec * self,
 
 static void
 gst_omx_video_dec_update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer,
-    gint out_width, gint out_height, GstVideoMeta * vmeta)
+    GstVideoMeta * vmeta)
 {
   GstVideoCodecState *state =
       gst_video_decoder_get_output_state (GST_VIDEO_DECODER (self));
@@ -2010,8 +2015,8 @@ gst_omx_video_dec_update_buffer_meta (GstOMXVideoDec * self, GstBuffer * buffer,
 
   GST_DEBUG_OBJECT (self, "update buffer meta");
 
-  vmeta->width = out_width;
-  vmeta->height = out_height;
+  vmeta->width  = GST_VIDEO_INFO_WIDTH (vinfo);
+  vmeta->height = GST_VIDEO_INFO_HEIGHT (vinfo);
 }
 
 static gboolean
@@ -2211,7 +2216,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     gst_omx_video_dec_clean_older_frames (self, buf,
         gst_video_decoder_get_frames (GST_VIDEO_DECODER (self)));
 
-  if (self->bypass == FALSE) {
+  if (self->output_state_updated == FALSE) {
     if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height))
       goto component_error;
 
@@ -2264,8 +2269,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         GstVideoMeta *vmeta;
         vmeta = gst_buffer_get_video_meta (outbuf);
         if (vmeta)
-          gst_omx_video_dec_update_buffer_meta (self, outbuf,
-                                                out_width, out_height, vmeta);
+          gst_omx_video_dec_update_buffer_meta (self, outbuf, vmeta);
       }
 
       buf = NULL;
@@ -2316,8 +2320,7 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
         GstVideoMeta *vmeta;
         vmeta = gst_buffer_get_video_meta (outbuf);
         if (vmeta)
-          gst_omx_video_dec_update_buffer_meta (self, outbuf,
-                                                out_width, out_height, vmeta);
+          gst_omx_video_dec_update_buffer_meta (self, outbuf, vmeta);
       }
 
       frame->output_buffer = outbuf;
@@ -2490,6 +2493,7 @@ gst_omx_video_dec_start (GstVideoDecoder * decoder)
   self->last_upstream_ts = 0;
   self->downstream_flow_ret = GST_FLOW_OK;
   self->use_buffers = FALSE;
+  self->output_state_updated = FALSE;
 
   return TRUE;
 }

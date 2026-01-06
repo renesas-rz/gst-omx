@@ -118,6 +118,8 @@ struct _GstOMXVideoDec
   guint32 num_outbufs;
   /* Size of allocation buffer of in-port (DECODER) */
   guint32 nSizeBytes;
+  /* TRUE if decoder's output state is updated */
+  gboolean output_state_updated;
 };
 
 struct _GstOMXVideoDecClass
