@@ -1,1 +1,1 @@
-install_data (['gstomx.conf'], install_dir : omx_conf_dir)
+install_data (['gstomx_' + target_board + '.conf'], install_dir : omx_conf_dir, rename : 'gstomx.conf')
