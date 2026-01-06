@@ -107,10 +107,8 @@ enum
   PROP_NO_COPY,
   PROP_NO_REORDER,
   PROP_LOSSY_COMPRESS,
-  PROP_ENABLE_CROP,
   PROP_BYPASS,
   PROP_NUM_OUTPUT_BUFFER,
-  PROP_ENABLE_SCALE,
   PROP_USER_SIZEBYTES,
 };
 
@@ -159,9 +157,6 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
       self->use_dmabuf = g_value_get_boolean (value);
       self->has_set_property = TRUE;
       break;
-    case PROP_ENABLE_CROP:
-      /* Deprecated from OMX v1.3.0 */
-      break;
     case PROP_USER_SIZEBYTES:
       self->nSizeBytes = g_value_get_uint (value);
       break;
@@ -176,17 +171,9 @@ gst_omx_video_dec_set_property (GObject * object, guint prop_id,
 #endif
     case PROP_BYPASS:
       self->bypass = g_value_get_boolean (value);
-      if (self->bypass == TRUE) {
-        self->enable_scale = FALSE;
-      }
       break;
     case PROP_NUM_OUTPUT_BUFFER:
       self->num_outbufs = g_value_get_uint (value);
-      break;
-    case PROP_ENABLE_SCALE:
-      self->enable_scale = g_value_get_boolean (value);
-      if (self->bypass == TRUE)
-        self->enable_scale = FALSE;
       break;
 #else
     case PROP_NO_REORDER:
@@ -229,17 +216,11 @@ gst_omx_video_dec_get_property (GObject * object, guint prop_id,
     case PROP_LOSSY_COMPRESS:
       g_value_set_boolean (value, self->lossy_compress);
       break;
-    case PROP_ENABLE_CROP:
-      /* Deprecated from OMX v1.3.0 */
-      break;
     case PROP_BYPASS:
       g_value_set_boolean (value, self->bypass);
       break;
     case PROP_NUM_OUTPUT_BUFFER:
       g_value_set_uint (value, self->num_outbufs);
-      break;
-    case PROP_ENABLE_SCALE:
-      g_value_set_boolean (value, self->enable_scale);
       break;
     case PROP_USER_SIZEBYTES:
       g_value_set_uint (value, self->nSizeBytes);
@@ -293,13 +274,6 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
           "Whether or not to use lossy image compression function",
           FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
-  g_object_class_install_property (gobject_class, PROP_ENABLE_CROP,
-      g_param_spec_boolean ("enable-crop",
-          "Enable cropping video as value of left_offset and top_offset",
-          "Whether or not to enable cropping if there is cropping information "
-          "on SPS (Deprecated)",
-          TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-          GST_PARAM_MUTABLE_READY));
   g_object_class_install_property (gobject_class, PROP_BYPASS,
       g_param_spec_boolean ("bypass",
           "Use Bypass function",
@@ -313,12 +287,6 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
           0, GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_MAXIMUM,
           GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-          GST_PARAM_MUTABLE_READY));
-  g_object_class_install_property (gobject_class, PROP_ENABLE_SCALE,
-      g_param_spec_boolean ("enable-scale",
-          "Scaling video using src caps ",
-          "Whether or not to enable scaling if Bypass mode is disabled",
-          TRUE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
           GST_PARAM_MUTABLE_READY));
    g_object_class_install_property (gobject_class, PROP_USER_SIZEBYTES,
       g_param_spec_uint ("sizebytes",
@@ -375,7 +343,6 @@ gst_omx_video_dec_init (GstOMXVideoDec * self)
   self->lossy_compress = FALSE;
   self->has_set_property = FALSE;
   self->bypass = FALSE;
-  self->enable_scale = FALSE;
   /* The default value is 0, which means the number of output buffers will be
    * automatically updated when allocated */
   self->num_outbufs = GST_OMX_VIDEO_DEC_NUMBER_OUTPUT_BUFFERS_DEFAULT;
@@ -1709,7 +1676,7 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
       MIN (port_def.format.video.nFrameHeight, GST_OMX_VIDEO_DEC_MAX_FRAMEHEIGHT);
 
   /* Update scale ratio base on decoded information */
-  if (self->enable_scale == TRUE) {
+  if (self->bypass == FALSE) {
     gint cropped_width, cropped_height;
 
     if (!gst_omx_video_dec_get_cropped_resolution (self, &cropped_width,
@@ -1968,12 +1935,14 @@ gst_omx_video_dec_get_resolution_from_src_pad (GstOMXVideoDec * self,
   GST_DEBUG_OBJECT (self, "Allowed downstream caps: %" GST_PTR_FORMAT,
       intersection);
 
-  s = gst_caps_get_structure (intersection, 0);
-  if (gst_structure_has_field (s, "width")) {
-    gst_structure_get_int (s, "width", out_width);
-  }
-  if (gst_structure_has_field (s, "height")) {
-    gst_structure_get_int (s, "height", out_height);
+  if (!gst_caps_is_empty (intersection)) {
+    s = gst_caps_get_structure (intersection, 0);
+    if (gst_structure_has_field (s, "width")) {
+      gst_structure_get_int (s, "width", out_width);
+    }
+    if (gst_structure_has_field (s, "height")) {
+      gst_structure_get_int (s, "height", out_height);
+    }
   }
 
   gst_caps_unref (intersection);
@@ -2242,11 +2211,9 @@ gst_omx_video_dec_loop (GstOMXVideoDec * self)
     if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height))
       goto component_error;
 
-    if (self->enable_scale == TRUE) {
-      if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
-                                                          &out_height))
-        goto component_error;
-    }
+    if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
+                                                        &out_height))
+      goto component_error;
 
     if (!gst_omx_video_dec_update_output_state (self, out_width, out_height))
       goto caps_failed;
@@ -3249,7 +3216,7 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
     }
   }
 
-  if (!self->disabled && self->enable_scale == TRUE) {
+  if (!self->disabled && self->bypass == FALSE) {
     /* Setting scale ratio base on current video information. If resolution is
      * smaller than or equal to 96x80, there is no PSC returned by OMX.
      * Therefore, scaling is not supported for these resolution */
@@ -3257,9 +3224,18 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
       if (!get_omx_video_dec_set_scale (self, info->width, info->height))
         return FALSE;
     } else {
-      GST_ERROR_OBJECT (self, "Unsupported scaling for %dx%d resolution",
-                        info->width, info->height);
-      return FALSE;
+      gint out_width = info->width;
+      gint out_height = info->height;
+
+      if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
+                                                          &out_height))
+        return FALSE;
+
+      if (out_width != info->width || out_height != info->height) {
+        GST_ERROR_OBJECT (self, "Unsupported scaling for %dx%d resolution",
+                          info->width, info->height);
+        return FALSE;
+      }
     }
   }
 #else
@@ -3978,7 +3954,7 @@ gst_omx_video_dec_sink_query (GstVideoDecoder * decoder, GstQuery * query)
   GST_LOG_OBJECT (self, "handling query: %" GST_PTR_FORMAT, query);
 
   if (self->dec) {
-    if (self->enable_scale == TRUE && GST_QUERY_TYPE (query) == GST_QUERY_CAPS) {
+    if (self->bypass == FALSE && GST_QUERY_TYPE (query) == GST_QUERY_CAPS) {
       GstCaps *filter, *caps;
 
       gst_query_parse_caps (query, &filter);
