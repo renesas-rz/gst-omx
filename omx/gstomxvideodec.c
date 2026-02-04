@@ -2100,6 +2100,8 @@ static gboolean
 get_omx_video_dec_set_scale (GstOMXVideoDec * self,
     gint in_width, gint in_height)
 {
+  OMX_CONFIG_SCALEFACTORTYPE sScale;
+  OMX_ERRORTYPE err;
   gint out_width = in_width, out_height = in_height;
 
   if (!gst_omx_video_dec_get_resolution_from_src_pad (self,
@@ -2112,26 +2114,18 @@ get_omx_video_dec_set_scale (GstOMXVideoDec * self,
       return FALSE;
   }
 
-  if (out_width <= in_width && out_height <= in_height) {
-    OMX_CONFIG_SCALEFACTORTYPE sScale;
-    OMX_ERRORTYPE err;
-    GST_OMX_INIT_STRUCT (&sScale);
-    sScale.nPortIndex = self->dec_out_port->index;
-    sScale.xWidth =
-        gst_omx_video_dec_calculate_scale_ratio (out_width, in_width);
-    sScale.xHeight =
-        gst_omx_video_dec_calculate_scale_ratio (out_height, in_height);
+  GST_OMX_INIT_STRUCT (&sScale);
+  sScale.nPortIndex = self->dec_out_port->index;
+  sScale.xWidth =
+      gst_omx_video_dec_calculate_scale_ratio (out_width, in_width);
+  sScale.xHeight =
+      gst_omx_video_dec_calculate_scale_ratio (out_height, in_height);
 
-    err = gst_omx_component_set_config (self->dec,
-                                        OMX_IndexConfigCommonScale, &sScale);
-    if (err != OMX_ErrorNone) {
-      GST_ERROR_OBJECT (self, "Failed to update scale propety: %s (0x%08x)",
-                        gst_omx_error_to_string (err), err);
-      return FALSE;
-    }
-  } else {
-    GST_ERROR_OBJECT (self, "Unsupported scale up: %dx%d to %dx%d",
-                      in_width, in_height, out_width, out_height);
+  err = gst_omx_component_set_config (self->dec,
+                                      OMX_IndexConfigCommonScale, &sScale);
+  if (err != OMX_ErrorNone) {
+    GST_ERROR_OBJECT (self, "Failed to update scale propety: %s (0x%08x)",
+                      gst_omx_error_to_string (err), err);
     return FALSE;
   }
 
