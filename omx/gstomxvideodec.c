@@ -983,25 +983,51 @@ gst_omx_video_dec_allocate_output_buffers (GstOMXVideoDec * self)
     if (gst_buffer_pool_has_option (pool,
                                     GST_BUFFER_POOL_OPTION_VIDEO_ALIGNMENT)) {
       GstVideoAlignment align;
+      GstVideoInfo *vinfo = &state->info;
+      gint i = 0;
 
       /* Get alignment */
       gst_video_alignment_reset (&align);
       gst_buffer_pool_config_get_video_alignment (config, &align);
 
-      if (!gst_omx_port_is_enabled (port) &&
-          IS_POWER_OF_2 (GST_ROUND_UP_2 (align.stride_align[0]))) {
+      if (!gst_omx_port_is_enabled (port)) {
         err = gst_omx_port_update_port_definition (port, NULL);
         if (err == OMX_ErrorNone) {
-          port->port_def.format.video.nStride =
-              GST_ROUND_UP_N (port->port_def.format.video.nStride,
-                              GST_ROUND_UP_2 (align.stride_align[0]));
+          /* Since OMX provides only a single nStride value for the output buffer,
+           * but aligning the stride for the first plane does not guarantee
+           * proper alignment for the remaining planes—especially in multi‑plane
+           * formats such as I420 */
+          for (i = 0; i < GST_VIDEO_INFO_N_PLANES (vinfo); i++) {
+            /* According to the implementation of Gstreamer, stride_align, logically,
+             * must be a number equal to 2^N-1 instead of 2^N. Downstream proposes
+             * alignment as 2^N in the older versions and 2^N-1 in the new version.
+             * So, we should round the alignment up before using to get the same
+             * result for both cases */
+            guint stride_align = GST_ROUND_UP_2 (align.stride_align[i]);
+            guint plane_stride = 0;
+
+            if (!IS_POWER_OF_2 (stride_align))
+              continue;
+
+            plane_stride = GST_VIDEO_FORMAT_INFO_SCALE_WIDTH (
+                vinfo->finfo, i, port->port_def.format.video.nStride);
+
+            if ((plane_stride % stride_align) == 0)
+              continue;
+
+            plane_stride = GST_ROUND_UP_N (plane_stride, stride_align);
+
+            port->port_def.format.video.nStride = plane_stride <<
+                GST_VIDEO_FORMAT_INFO_W_SUB (vinfo->finfo, i);
+          }
+
           err = gst_omx_port_update_port_definition (port, &port->port_def);
         }
 
         if (err != OMX_ErrorNone) {
           GST_ERROR_OBJECT (self,
               "Failed to round up nStride with alignment requirement (%d) "
-              "from downstream: %s (0x%08x)", align.stride_align[0],
+              "from downstream: %s (0x%08x)", align.stride_align[i],
               gst_omx_error_to_string (err), err);
           goto done;
         }
