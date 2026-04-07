@@ -3541,7 +3541,10 @@ static const GGetTypeFunction types[] = {
       , gst_omx_theora_dec_get_type
 #endif
 #ifdef HAVE_HEVC
-      , gst_omx_h265_enc_get_type, gst_omx_h265_dec_get_type
+#ifndef TARGET_BOARD_G2H
+      , gst_omx_h265_enc_get_type
+#endif
+      , gst_omx_h265_dec_get_type
 #endif
 };
 

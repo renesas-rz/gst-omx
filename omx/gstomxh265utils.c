@@ -33,7 +33,9 @@ typedef struct
 
 static const H265ProfileMapping h265_profiles[] = {
   {"main", OMX_VIDEO_HEVCProfileMain},
+#ifndef TARGET_BOARD_G2H
   {"main-10", OMX_VIDEO_HEVCProfileMain10},
+#endif
 #ifdef USE_OMX_TARGET_ZYNQ_USCALE_PLUS
   {"main-still-picture",
       (OMX_VIDEO_HEVCPROFILETYPE) OMX_ALG_VIDEO_HEVCProfileMainStill},
@@ -105,6 +107,7 @@ gst_omx_h265_utils_get_level_from_str (const gchar * level, const gchar * tier)
       return OMX_VIDEO_HEVCMainTierLevel41;
     else if (g_str_equal (level, "5"))
       return OMX_VIDEO_HEVCMainTierLevel5;
+#ifndef TARGET_BOARD_G2H
     else if (g_str_equal (level, "5.1"))
       return OMX_VIDEO_HEVCMainTierLevel51;
     else if (g_str_equal (level, "5.2"))
@@ -132,6 +135,7 @@ gst_omx_h265_utils_get_level_from_str (const gchar * level, const gchar * tier)
       return OMX_VIDEO_HEVCHighTierLevel61;
     else if (g_str_equal (level, "6.2"))
       return OMX_VIDEO_HEVCHighTierLevel62;
+#endif
   }
 
   return OMX_VIDEO_HEVCLevelUnknown;
