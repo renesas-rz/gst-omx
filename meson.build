@@ -242,6 +242,8 @@ elif omx_target == 'rz'
       target_board = 'rzv2h'
     elif target_board == 'rzg3e'
       target_board = 'rzg3e'
+    elif target_board == 'rzg2h'
+      cdata.set('TARGET_BOARD_G2H', 1)
     else
       error ('Unsupported board: ' + target_board)
     endif

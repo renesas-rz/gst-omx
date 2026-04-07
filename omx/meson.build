@@ -39,7 +39,9 @@ endif
 
 if have_omx_hevc
   omx_sources += 'gstomxh265utils.c'
-  omx_sources += 'gstomxh265enc.c'
+  if target_board != 'rzg2h'
+    omx_sources += 'gstomxh265enc.c'
+  endif
   omx_sources += 'gstomxh265dec.c'
 endif
 
