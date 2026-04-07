@@ -9,7 +9,7 @@ option('struct_packing', type : 'combo',
     choices : ['0', '1', '2', '4', '8'], value : '0',
     description : 'Force OpenMAX struct packing')
 option('target_board', type : 'combo',
-    choices : ['none', 'rzg2l', 'rzv2l', 'rzv2h', 'rzv2n', 'rzg3e'], value : 'none',
+    choices : ['none', 'rzg2l', 'rzv2l', 'rzv2h', 'rzv2n', 'rzg3e', 'rzg2h'], value : 'none',
     description : 'Specify the RZ target board')
 
 # Common feature options
