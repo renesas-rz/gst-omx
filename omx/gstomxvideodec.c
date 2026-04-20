@@ -95,7 +95,7 @@ static gboolean gst_omx_video_dec_get_cropped_resolution (GstOMXVideoDec * self,
 static gboolean gst_omx_video_dec_get_resolution_from_src_pad (GstOMXVideoDec * self,
     gint * out_width, gint * out_height);
 static gboolean get_omx_video_dec_set_scale (GstOMXVideoDec * self,
-    gint in_width, gint in_height);
+    gint * in_width, gint * in_height);
 static gint gst_omx_video_dec_calculate_scale_ratio (gint new_length,
     gint length);
 
@@ -1829,14 +1829,7 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
     if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height))
       goto done;
 
-    if (!get_omx_video_dec_set_scale (self, out_width, out_height))
-      goto done;
-
-    /* If there is cropped information in SPS, it means scale ratio is
-     * calculated incorrectly. So, nStride / nSliceHeight updated by OMX should
-     * not be used. */
-    if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
-                                                        &out_height))
+    if (!get_omx_video_dec_set_scale (self, &out_width, &out_height))
       goto done;
 
     port_def.format.video.nStride = MAX (out_width *
@@ -2124,11 +2117,12 @@ gst_omx_video_dec_get_resolution_from_src_pad (GstOMXVideoDec * self,
 
 static gboolean
 get_omx_video_dec_set_scale (GstOMXVideoDec * self,
-    gint in_width, gint in_height)
+    gint * in_width, gint * in_height)
 {
   OMX_CONFIG_SCALEFACTORTYPE sScale;
   OMX_ERRORTYPE err;
-  gint out_width = in_width, out_height = in_height;
+  gint out_width = *in_width;
+  gint out_height = *in_height;
 
   if (!gst_omx_video_dec_get_resolution_from_src_pad (self,
                                                       &out_width, &out_height))
@@ -2143,19 +2137,45 @@ get_omx_video_dec_set_scale (GstOMXVideoDec * self,
   GST_OMX_INIT_STRUCT (&sScale);
   sScale.nPortIndex = self->dec_out_port->index;
   sScale.xWidth =
-      gst_omx_video_dec_calculate_scale_ratio (out_width, in_width);
+      gst_omx_video_dec_calculate_scale_ratio (out_width, *in_width);
   sScale.xHeight =
-      gst_omx_video_dec_calculate_scale_ratio (out_height, in_height);
+      gst_omx_video_dec_calculate_scale_ratio (out_height, *in_height);
 
   err = gst_omx_component_set_config (self->dec,
                                       OMX_IndexConfigCommonScale, &sScale);
-  if (err != OMX_ErrorNone) {
-    GST_ERROR_OBJECT (self, "Failed to update scale propety: %s (0x%08x)",
-                      gst_omx_error_to_string (err), err);
-    return FALSE;
+  if (err != OMX_ErrorNone)
+    goto update_failed;
+
+  /* Some codec versions do not support scaling, but they also do not return an
+   * error when a scale ratio is set. As a result, the user-provided value is
+   * silently ignored, which can lead to incorrect behavior.
+   * Recheck the scale ratio after setting it and verify that the value was
+   * actually applied is neccessary for backward compatible. */
+  {
+    gint xWidth = sScale.xWidth;
+    gint xHeight = sScale.xHeight;
+
+    err = gst_omx_component_get_config (self->dec,
+                                        OMX_IndexConfigCommonScale, &sScale);
+    if (err != OMX_ErrorNone)
+      goto update_failed;
+
+    if (xWidth != sScale.xWidth || xHeight != sScale.xHeight) {
+      GST_WARNING_OBJECT (self,
+          "Component does not support scaling. Scaling resolution is not applied");
+      return TRUE;
+    }
   }
 
+  *in_width = out_width;
+  *in_height = out_height;
+
   return TRUE;
+
+update_failed:
+  GST_ERROR_OBJECT (self, "Failed to update scale propety: %s (0x%08x)",
+                    gst_omx_error_to_string (err), err);
+  return FALSE;
 }
 
 static void
@@ -3491,16 +3511,16 @@ gst_omx_video_dec_set_format (GstVideoDecoder * decoder,
   }
 
   if (!self->disabled && self->bypass == FALSE) {
+    gint out_width = info->width;
+    gint out_height = info->height;
+
     /* Setting scale ratio base on current video information. If resolution is
      * smaller than or equal to 96x80, there is no PSC returned by OMX.
      * Therefore, scaling is not supported for these resolution */
     if (info->width > 96 || info->height > 80) {
-      if (!get_omx_video_dec_set_scale (self, info->width, info->height))
+      if (!get_omx_video_dec_set_scale (self, &out_width, &out_height))
         return FALSE;
     } else {
-      gint out_width = info->width;
-      gint out_height = info->height;
-
       if (!gst_omx_video_dec_get_resolution_from_src_pad (self, &out_width,
                                                           &out_height))
         return FALSE;
