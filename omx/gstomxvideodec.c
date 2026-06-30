@@ -82,6 +82,8 @@ static gboolean gst_omx_video_dec_propose_allocation (GstVideoDecoder * bdec,
     GstQuery * query);
 static gboolean gst_omx_video_dec_sink_query (GstVideoDecoder * decoder,
     GstQuery * query);
+static gboolean gst_omx_video_dec_sink_event (GstVideoDecoder * decoder,
+    GstEvent * event);
 
 static GstFlowReturn gst_omx_video_dec_drain (GstVideoDecoder * decoder);
 
@@ -342,6 +344,8 @@ gst_omx_video_dec_class_init (GstOMXVideoDecClass * klass)
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_propose_allocation);
   video_decoder_class->sink_query =
       GST_DEBUG_FUNCPTR (gst_omx_video_dec_sink_query);
+  video_decoder_class->sink_event =
+      GST_DEBUG_FUNCPTR (gst_omx_video_dec_sink_event);
 
   klass->cdata.type = GST_OMX_COMPONENT_TYPE_FILTER;
   klass->cdata.default_src_template_caps =
@@ -4416,6 +4420,29 @@ gst_omx_video_dec_sink_query (GstVideoDecoder * decoder, GstQuery * query)
   return
     GST_VIDEO_DECODER_CLASS
     (gst_omx_video_dec_parent_class)->sink_query (decoder, query);
+}
+
+static gboolean
+gst_omx_video_dec_sink_event (GstVideoDecoder * decoder, GstEvent * event)
+{
+  GstOMXVideoDec *self = GST_OMX_VIDEO_DEC (decoder);
+
+  switch (GST_EVENT_TYPE (event)) {
+    case GST_EVENT_FLUSH_START:
+      GST_DEBUG_OBJECT (self, "flush start event, start flushing inport");
+      gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, TRUE);
+      break;
+    case GST_EVENT_FLUSH_STOP:
+      GST_DEBUG_OBJECT (self, "flush stop event, set inport can accept new data");
+      gst_omx_port_set_flushing (self->dec_in_port, 5 * GST_SECOND, FALSE);
+      break;
+    default:
+      break;
+  }
+
+  return
+    GST_VIDEO_DECODER_CLASS
+    (gst_omx_video_dec_parent_class)->sink_event (decoder, event);
 }
 
 static gint
