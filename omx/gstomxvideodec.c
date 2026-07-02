@@ -1903,6 +1903,13 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
         GST_VIDEO_FORMAT_INFO_PSTRIDE(info, 0), GST_OMX_VIDEO_DEC_MIN_STRIDE);
     port_def.format.video.nSliceHeight = MAX (out_height,
         GST_OMX_VIDEO_DEC_MIN_SLICEHEIGHT);
+
+    /* Align stride to 256 as required by OMX when lossy compression
+    * is enabled. */
+    if (self->lossy_compress == TRUE) {
+      port_def.format.video.nStride =
+          GST_ROUND_UP_N (port_def.format.video.nStride, 256);
+    }
   }
   else {
     out_width = port_def.format.video.nFrameWidth;
