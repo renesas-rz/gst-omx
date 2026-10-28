@@ -1892,12 +1892,18 @@ gst_omx_video_dec_reconfigure_output_port (GstOMXVideoDec * self)
   /* Update scale ratio base on decoded information */
   if (self->bypass == FALSE) {
 #ifndef TARGET_BOARD_G2H
-    if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height))
+    if (!gst_omx_video_dec_get_cropped_resolution (self, &out_width, &out_height)) {
+      GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+      err = OMX_ErrorUndefined;
       goto done;
+    }
 #endif
 
-    if (!get_omx_video_dec_set_scale (self, &out_width, &out_height))
+    if (!get_omx_video_dec_set_scale (self, &out_width, &out_height)) {
+      GST_VIDEO_DECODER_STREAM_UNLOCK (self);
+      err = OMX_ErrorUndefined;
       goto done;
+    }
 
     port_def.format.video.nStride = MAX (out_width *
         GST_VIDEO_FORMAT_INFO_PSTRIDE(info, 0), GST_OMX_VIDEO_DEC_MIN_STRIDE);
